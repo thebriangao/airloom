@@ -38,6 +38,24 @@ test("server-renders the Airloom product shell", async () => {
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
+test("camera access is requested before loading hand tracking", async () => {
+  const source = await readFile(
+    new URL("../app/airloom/AirloomStudio.tsx", import.meta.url),
+    "utf8",
+  );
+  const cameraRequest = source.indexOf(
+    "await navigator.mediaDevices.getUserMedia",
+  );
+  const trackingImport = source.indexOf(
+    'await import(\n        "@mediapipe/tasks-vision"',
+  );
+
+  assert.notEqual(cameraRequest, -1);
+  assert.notEqual(trackingImport, -1);
+  assert.ok(cameraRequest < trackingImport);
+  assert.match(source, /if \(!context\) return;/);
+});
+
 test("keeps tracking, gestures, and rendering in separate modules", async () => {
   const [studio, gestures, scene, architecture, packageJson] =
     await Promise.all([

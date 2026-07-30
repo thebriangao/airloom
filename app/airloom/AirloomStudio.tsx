@@ -19,7 +19,12 @@ import {
   type Landmark,
 } from "./types";
 
-type CameraState = "idle" | "loading" | "active" | "error";
+type CameraState =
+  | "idle"
+  | "requesting"
+  | "calibrating"
+  | "active"
+  | "error";
 type SoundKind = "open" | "close" | "color" | "size";
 
 const POSE_LABELS: Record<HandPose, string> = {
@@ -80,19 +85,32 @@ export function AirloomStudio() {
     [],
   );
 
-  const primeAudio = useCallback(() => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
+  const primeAudio = useCallback((): AudioContext | null => {
+    try {
+      const AudioContextConstructor =
+        window.AudioContext ??
+        (
+          window as Window & {
+            webkitAudioContext?: typeof AudioContext;
+          }
+        ).webkitAudioContext;
+      if (!AudioContextConstructor) return null;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContextConstructor();
+      }
+      if (audioContextRef.current.state === "suspended") {
+        void audioContextRef.current.resume().catch(() => undefined);
+      }
+      return audioContextRef.current;
+    } catch {
+      return null;
     }
-    if (audioContextRef.current.state === "suspended") {
-      void audioContextRef.current.resume();
-    }
-    return audioContextRef.current;
   }, []);
 
   const playSound = useCallback(
     (kind: SoundKind) => {
       const context = primeAudio();
+      if (!context) return;
       const now = context.currentTime;
       const oscillator = context.createOscillator();
       const gain = context.createGain();
@@ -282,6 +300,7 @@ export function AirloomStudio() {
     window.cancelAnimationFrame(animationRef.current);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
     handLandmarkerRef.current?.close();
     handLandmarkerRef.current = null;
     gestureEngineRef.current.reset();
@@ -320,14 +339,16 @@ export function AirloomStudio() {
   }, [processHand, updateGesture]);
 
   const startCamera = async () => {
-    primeAudio();
-    setCameraState("loading");
+    setCameraState("requesting");
     setCameraError("");
     setDemoMode(false);
     try {
-      const { FilesetResolver, HandLandmarker } = await import(
-        "@mediapipe/tasks-vision"
-      );
+      primeAudio();
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Camera access is unavailable here. Open Airloom in a current browser over HTTPS.",
+        );
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
@@ -340,6 +361,11 @@ export function AirloomStudio() {
       if (!videoRef.current) throw new Error("Camera surface unavailable.");
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
+      setCameraState("calibrating");
+
+      const { FilesetResolver, HandLandmarker } = await import(
+        "@mediapipe/tasks-vision"
+      );
 
       const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
@@ -381,10 +407,18 @@ export function AirloomStudio() {
       stopCamera();
       setDemoMode(true);
       setCameraState("error");
+      const errorName =
+        error instanceof DOMException || error instanceof Error
+          ? error.name
+          : "";
       setCameraError(
-        error instanceof Error
-          ? error.message
-          : "Airloom could not start the camera.",
+        errorName === "NotAllowedError"
+          ? "Camera access was blocked. Allow it in your browser's site settings, then try again."
+          : errorName === "NotFoundError"
+            ? "No camera was found on this device."
+            : error instanceof Error
+              ? error.message
+              : "Airloom could not start the camera.",
       );
     }
   };
@@ -516,6 +550,8 @@ export function AirloomStudio() {
   };
 
   const markerAngle = -135 + thickness * 270;
+  const cameraHasVideo =
+    cameraState === "calibrating" || cameraState === "active";
   const dialStyle = {
     "--dial-color": selectedColor.value,
     "--dial-lift": `${(0.5 - thickness) * 18}px`,
@@ -553,7 +589,13 @@ export function AirloomStudio() {
 
         <div className="gesture-pill" aria-live="polite">
           <span className={cameraState === "active" ? "live-dot" : "idle-dot"} />
-          {demoMode ? "Mouse drawing" : POSE_LABELS[gesture]}
+          {cameraState === "requesting"
+            ? "Waiting for camera permission"
+            : cameraState === "calibrating"
+              ? "Loading hand tracking"
+              : demoMode
+                ? "Mouse drawing"
+                : POSE_LABELS[gesture]}
         </div>
 
         <aside className="camera-bubble">
@@ -561,24 +603,28 @@ export function AirloomStudio() {
           <div className="camera-window">
             <video
               ref={videoRef}
-              className={`camera-feed ${cameraState === "active" ? "is-visible" : ""}`}
+              className={`camera-feed ${cameraHasVideo ? "is-visible" : ""}`}
               muted
               playsInline
             />
-            {cameraState !== "active" && (
+            {!cameraHasVideo && (
               <div className="camera-placeholder">
                 <span>CAMERA 01</span>
                 <strong>
-                  {cameraState === "loading" ? "Starting…" : "Ready when you are"}
+                  {cameraState === "requesting"
+                    ? "Allow camera access…"
+                    : cameraState === "error"
+                      ? "Camera needs attention"
+                      : "Ready when you are"}
                 </strong>
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
                     void startCamera();
                   }}
-                  disabled={cameraState === "loading"}
+                  disabled={cameraState === "requesting"}
                 >
-                  Enable camera
+                  {cameraState === "error" ? "Try again" : "Enable camera"}
                 </button>
                 {!demoMode && (
                   <button className="camera-text-button" onClick={useMouse}>
@@ -588,11 +634,11 @@ export function AirloomStudio() {
                 {cameraError && <small>{cameraError}</small>}
               </div>
             )}
-            {cameraState === "active" && (
+            {cameraHasVideo && (
               <>
                 <div className="camera-label">
                   <span />
-                  LIVE HAND
+                  {cameraState === "active" ? "LIVE HAND" : "LOADING TRACKING"}
                 </div>
                 <button
                   className="camera-exit"
@@ -747,6 +793,8 @@ export function AirloomStudio() {
         <p className="canvas-hint">
           {cameraState === "active"
             ? "One finger draws · Two pan · Three orbit · Snap opens the dial"
+            : cameraState === "calibrating"
+              ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera above"}
         </p>
       </section>
