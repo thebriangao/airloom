@@ -8,8 +8,6 @@ type Stroke = {
   mesh: THREE.Mesh;
 };
 
-const GRID_COLOR = new THREE.Color("#96a2aa");
-
 export class AirScene {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
@@ -32,24 +30,12 @@ export class AirScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.camera.position.set(0, 0, 7);
 
-    const ambient = new THREE.AmbientLight("#ffffff", 1.45);
-    const key = new THREE.DirectionalLight("#dff8ff", 3.2);
+    const ambient = new THREE.AmbientLight("#ffffff", 2.2);
+    const key = new THREE.DirectionalLight("#ffffff", 3.8);
     key.position.set(4, 5, 7);
-    const rim = new THREE.PointLight("#8c6bff", 24, 18);
+    const rim = new THREE.PointLight("#d9d9d9", 18, 18);
     rim.position.set(-4, -2, 4);
     this.scene.add(ambient, key, rim, this.artwork);
-
-    const grid = new THREE.GridHelper(12, 24, GRID_COLOR, GRID_COLOR);
-    const materials = Array.isArray(grid.material)
-      ? grid.material
-      : [grid.material];
-    materials.forEach((material) => {
-      material.transparent = true;
-      material.opacity = 0.12;
-    });
-    grid.rotation.x = Math.PI / 2;
-    grid.position.z = -2.5;
-    this.scene.add(grid);
 
     const loop = () => {
       this.frame = window.requestAnimationFrame(loop);

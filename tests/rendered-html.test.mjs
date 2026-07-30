@@ -30,11 +30,10 @@ test("server-renders the Airloom product shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Airloom \| Draw in the space between<\/title>/i);
-  assert.match(html, /YOUR HAND IS THE BRUSH/);
-  assert.match(html, /Paint beyond/);
+  assert.match(html, /AIRLOOM/);
+  assert.match(html, /SPACE IS THE CANVAS/);
   assert.match(html, /Enable camera/);
-  assert.match(html, /Try with a mouse/);
-  assert.match(html, /MediaPipe \+ Three\.js/);
+  assert.match(html, /Draw with your mouse now/);
   assert.match(html, /og:image/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
@@ -60,6 +59,9 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.match(studio, /result\.pose === "pan2d"/);
   assert.match(studio, /result\.pose === "orbit3d"/);
   assert.match(studio, /menuOpenRef\.current/);
+  assert.match(studio, /selectThickness/);
+  assert.match(studio, /AudioContext/);
+  assert.match(studio, /dial-color-grid/);
   assert.match(gestures, /SNAP_COOLDOWN_MS/);
   assert.match(gestures, /fingerExtended/);
   assert.match(scene, /TubeGeometry/);
@@ -68,5 +70,5 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.match(packageJson, /"@mediapipe\/tasks-vision"/);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
-  await access(new URL("../public/og.png", import.meta.url));
+  await access(new URL("../public/og-v2.png", import.meta.url));
 });

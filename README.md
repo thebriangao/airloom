@@ -10,8 +10,8 @@ the brush menu.
 - Two raised fingers: pan the artwork in 2D
 - Three raised fingers: orbit and zoom the artwork
 - Finger snap: open or close the brush menu
-- Fist in the menu: move left or right to select one of eight colors
-- Open palm in the menu: move left or right to select one of five stroke sizes
+- Fist in the menu: move across the camera frame to select from a 5x5 color grid
+- Open palm in the menu: move left or right for continuous stroke thickness
 
 Mouse, keyboard, and visible-button fallbacks are included.
 

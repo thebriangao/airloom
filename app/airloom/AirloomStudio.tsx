@@ -4,42 +4,49 @@ import type { HandLandmarker } from "@mediapipe/tasks-vision";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { AirScene } from "./AirScene";
 import { GestureEngine } from "./gestureEngine";
 import {
   AIRLOOM_COLORS,
-  AIRLOOM_SIZES,
+  radiusFromThickness,
   type HandPose,
   type Landmark,
 } from "./types";
 
 type CameraState = "idle" | "loading" | "active" | "error";
+type SoundKind = "open" | "close" | "color" | "size";
 
 const POSE_LABELS: Record<HandPose, string> = {
   none: "Show your hand",
-  draw: "Drawing in 3D",
-  pan2d: "Panning canvas",
-  orbit3d: "Orbiting canvas",
-  fist: "Fist detected",
-  openPalm: "Open palm",
-  other: "Gesture not assigned",
+  draw: "Drawing",
+  pan2d: "Panning",
+  orbit3d: "Orbiting",
+  fist: "Choosing color",
+  openPalm: "Adjusting thickness",
+  other: "Reading gesture",
 };
 
-const clampIndex = (value: number, length: number) =>
-  Math.max(0, Math.min(length - 1, Math.floor(value * length)));
+const clamp = (value: number, minimum = 0, maximum = 1) =>
+  Math.max(minimum, Math.min(maximum, value));
+
+const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
 
 export function AirloomStudio() {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
+  const thicknessArcRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const animationRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
   const gestureEngineRef = useRef(new GestureEngine());
@@ -53,27 +60,96 @@ export function AirloomStudio() {
   const depthBaselineRef = useRef<number | null>(null);
   const menuOpenRef = useRef(false);
   const colorIndexRef = useRef(0);
-  const sizeIndexRef = useRef(2);
+  const thicknessRef = useRef(0.32);
+  const lastSizeTickRef = useRef(4);
   const pointerDrawingRef = useRef(false);
+  const thicknessDraggingRef = useRef(false);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraError, setCameraError] = useState("");
   const [gesture, setGesture] = useState<HandPose>("none");
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorIndex, setColorIndex] = useState(0);
-  const [sizeIndex, setSizeIndex] = useState(2);
-  const [demoMode, setDemoMode] = useState(false);
+  const [thickness, setThickness] = useState(0.32);
+  const [demoMode, setDemoMode] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  const selectColor = useCallback((index: number) => {
-    colorIndexRef.current = index;
-    setColorIndex(index);
+  const selectedColor = AIRLOOM_COLORS[colorIndex];
+  const thicknessSegments = useMemo(
+    () => Array.from({ length: 49 }, (_, index) => index / 48),
+    [],
+  );
+
+  const primeAudio = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext();
+    }
+    if (audioContextRef.current.state === "suspended") {
+      void audioContextRef.current.resume();
+    }
+    return audioContextRef.current;
   }, []);
 
-  const selectSize = useCallback((index: number) => {
-    sizeIndexRef.current = index;
-    setSizeIndex(index);
-  }, []);
+  const playSound = useCallback(
+    (kind: SoundKind) => {
+      const context = primeAudio();
+      const now = context.currentTime;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const filter = context.createBiquadFilter();
+      const frequencies: Record<SoundKind, [number, number]> = {
+        open: [220, 520],
+        close: [420, 180],
+        color: [520, 610],
+        size: [170, 220],
+      };
+      const [start, end] = frequencies[kind];
+
+      oscillator.type = kind === "size" ? "triangle" : "sine";
+      oscillator.frequency.setValueAtTime(start, now);
+      oscillator.frequency.exponentialRampToValueAtTime(end, now + 0.075);
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(kind === "open" ? 1800 : 1100, now);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(
+        kind === "open" ? 0.075 : 0.038,
+        now + 0.012,
+      );
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
+      oscillator.connect(filter);
+      filter.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(now);
+      oscillator.stop(now + 0.12);
+    },
+    [primeAudio],
+  );
+
+  const selectColor = useCallback(
+    (index: number, audible = true) => {
+      const next = clamp(index, 0, AIRLOOM_COLORS.length - 1);
+      if (colorIndexRef.current === next) return;
+      colorIndexRef.current = next;
+      setColorIndex(next);
+      if (audible) playSound("color");
+    },
+    [playSound],
+  );
+
+  const selectThickness = useCallback(
+    (value: number, audible = true) => {
+      const next = clamp(value);
+      if (Math.abs(thicknessRef.current - next) < 0.003) return;
+      thicknessRef.current = next;
+      setThickness(next);
+      const tick = Math.floor(next * 14);
+      if (audible && tick !== lastSizeTickRef.current) {
+        lastSizeTickRef.current = tick;
+        playSound("size");
+      }
+    },
+    [playSound],
+  );
 
   const toggleMenu = useCallback(() => {
     const next = !menuOpenRef.current;
@@ -81,7 +157,8 @@ export function AirloomStudio() {
     setMenuOpen(next);
     sceneRef.current?.endStroke();
     previousControlRef.current = null;
-  }, []);
+    playSound(next ? "open" : "close");
+  }, [playSound]);
 
   const updateGesture = useCallback((next: HandPose) => {
     if (gestureRef.current === next) return;
@@ -91,7 +168,6 @@ export function AirloomStudio() {
 
   useEffect(() => {
     if (!canvasRef.current || !stageRef.current) return;
-
     const scene = new AirScene(canvasRef.current);
     sceneRef.current = scene;
     const resize = () => {
@@ -104,7 +180,6 @@ export function AirloomStudio() {
     const observer = new ResizeObserver(resize);
     observer.observe(stageRef.current);
     resize();
-
     return () => {
       observer.disconnect();
       scene.dispose();
@@ -142,10 +217,19 @@ export function AirloomStudio() {
       if (menuOpenRef.current) {
         sceneRef.current?.endStroke();
         previousControlRef.current = null;
+
         if (result.pose === "fist") {
-          selectColor(clampIndex(1 - result.palm.x, AIRLOOM_COLORS.length));
+          const column = Math.min(
+            4,
+            Math.floor(gridPosition(1 - result.palm.x) * 5),
+          );
+          const row = Math.min(
+            4,
+            Math.floor(gridPosition(result.palm.y) * 5),
+          );
+          selectColor(row * 5 + column);
         } else if (result.pose === "openPalm") {
-          selectSize(clampIndex(1 - result.palm.x, AIRLOOM_SIZES.length));
+          selectThickness(gridPosition(1 - result.palm.x));
         }
         return;
       }
@@ -163,7 +247,7 @@ export function AirloomStudio() {
           sceneRef.current?.addPoint(
             point,
             AIRLOOM_COLORS[colorIndexRef.current].value,
-            AIRLOOM_SIZES[sizeIndexRef.current].value,
+            radiusFromThickness(thicknessRef.current),
           );
         }
       } else {
@@ -176,7 +260,6 @@ export function AirloomStudio() {
           result.palm.y - previous.y,
         );
       }
-
       if (previous?.pose === result.pose && result.pose === "orbit3d") {
         sceneRef.current?.orbit(
           result.palm.x - previous.x,
@@ -192,7 +275,7 @@ export function AirloomStudio() {
         scale: result.handScale,
       };
     },
-    [selectColor, selectSize, toggleMenu, updateGesture],
+    [selectColor, selectThickness, toggleMenu, updateGesture],
   );
 
   const stopCamera = useCallback(() => {
@@ -212,7 +295,6 @@ export function AirloomStudio() {
     const loop = () => {
       const video = videoRef.current;
       const landmarker = handLandmarkerRef.current;
-
       if (
         video &&
         landmarker &&
@@ -222,7 +304,6 @@ export function AirloomStudio() {
         lastVideoTimeRef.current = video.currentTime;
         const result = landmarker.detectForVideo(video, performance.now());
         const landmarks = result.landmarks[0] as Landmark[] | undefined;
-
         if (landmarks) {
           processHand(landmarks, performance.now());
         } else {
@@ -233,17 +314,16 @@ export function AirloomStudio() {
           if (cursorRef.current) cursorRef.current.style.opacity = "0";
         }
       }
-
       animationRef.current = window.requestAnimationFrame(loop);
     };
     animationRef.current = window.requestAnimationFrame(loop);
   }, [processHand, updateGesture]);
 
   const startCamera = async () => {
+    primeAudio();
     setCameraState("loading");
     setCameraError("");
     setDemoMode(false);
-
     try {
       const { FilesetResolver, HandLandmarker } = await import(
         "@mediapipe/tasks-vision"
@@ -257,7 +337,6 @@ export function AirloomStudio() {
         audio: false,
       });
       streamRef.current = stream;
-
       if (!videoRef.current) throw new Error("Camera surface unavailable.");
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
@@ -265,7 +344,6 @@ export function AirloomStudio() {
       const vision = await FilesetResolver.forVisionTasks(
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
       );
-
       try {
         handLandmarkerRef.current = await HandLandmarker.createFromOptions(
           vision,
@@ -296,12 +374,12 @@ export function AirloomStudio() {
           },
         );
       }
-
       lastVideoTimeRef.current = -1;
       setCameraState("active");
       startTrackingLoop();
     } catch (error) {
       stopCamera();
+      setDemoMode(true);
       setCameraState("error");
       setCameraError(
         error instanceof Error
@@ -311,7 +389,7 @@ export function AirloomStudio() {
     }
   };
 
-  const startDemo = () => {
+  const useMouse = () => {
     stopCamera();
     setDemoMode(true);
     setCameraState("idle");
@@ -328,7 +406,9 @@ export function AirloomStudio() {
     };
   };
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     if (!demoMode || menuOpenRef.current) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerDrawingRef.current = true;
@@ -341,12 +421,14 @@ export function AirloomStudio() {
       sceneRef.current?.addPoint(
         point,
         AIRLOOM_COLORS[colorIndexRef.current].value,
-        AIRLOOM_SIZES[sizeIndexRef.current].value,
+        radiusFromThickness(thicknessRef.current),
       );
     }
   };
 
-  const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const handleCanvasPointerMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     if (!pointerDrawingRef.current || !demoMode) return;
     const pointer = pointerPosition(event);
     const point = sceneRef.current?.normalizedToWorld(
@@ -357,21 +439,52 @@ export function AirloomStudio() {
       sceneRef.current?.addPoint(
         point,
         AIRLOOM_COLORS[colorIndexRef.current].value,
-        AIRLOOM_SIZES[sizeIndexRef.current].value,
+        radiusFromThickness(thicknessRef.current),
       );
     }
   };
 
-  const handlePointerUp = () => {
+  const handleCanvasPointerUp = () => {
     pointerDrawingRef.current = false;
     sceneRef.current?.endStroke();
+  };
+
+  const updateThicknessFromPointer = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    const rect = thicknessArcRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const x = event.clientX - (rect.left + rect.width / 2);
+    const y = event.clientY - (rect.top + rect.height / 2);
+    const angleFromTop = (Math.atan2(x, -y) * 180) / Math.PI;
+    selectThickness(clamp((angleFromTop + 135) / 270));
+  };
+
+  const handleThicknessDown = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    event.stopPropagation();
+    primeAudio();
+    thicknessDraggingRef.current = true;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    updateThicknessFromPointer(event);
+  };
+
+  const handleThicknessMove = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    if (!thicknessDraggingRef.current) return;
+    updateThicknessFromPointer(event);
+  };
+
+  const handleThicknessUp = () => {
+    thicknessDraggingRef.current = false;
   };
 
   const exportArtwork = async () => {
     const stage = stageRef.current;
     const sceneCanvas = sceneRef.current?.getCanvas();
     if (!stage || !sceneCanvas) return;
-
     const width = Math.max(1280, stage.clientWidth);
     const height = Math.round(width * (stage.clientHeight / stage.clientWidth));
     const output = document.createElement("canvas");
@@ -379,28 +492,22 @@ export function AirloomStudio() {
     output.height = height;
     const context = output.getContext("2d");
     if (!context) return;
-
-    const background = context.createLinearGradient(0, 0, width, height);
-    background.addColorStop(0, "#101719");
-    background.addColorStop(1, "#050606");
-    context.fillStyle = background;
+    context.fillStyle = "#fbfbf8";
     context.fillRect(0, 0, width, height);
-
-    if (videoRef.current && cameraState === "active") {
-      context.save();
-      context.translate(width, 0);
-      context.scale(-1, 1);
-      context.globalAlpha = 0.6;
-      context.drawImage(videoRef.current, 0, 0, width, height);
-      context.restore();
+    context.fillStyle = "#d8d8d4";
+    const gap = 26 * (width / Math.max(1, stage.clientWidth));
+    for (let x = gap; x < width; x += gap) {
+      for (let y = gap; y < height; y += gap) {
+        context.beginPath();
+        context.arc(x, y, 1.1, 0, Math.PI * 2);
+        context.fill();
+      }
     }
-
     context.drawImage(sceneCanvas, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) =>
       output.toBlob(resolve, "image/png"),
     );
     if (!blob) return;
-
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `airloom-${new Date().toISOString().slice(0, 10)}.png`;
@@ -408,276 +515,241 @@ export function AirloomStudio() {
     URL.revokeObjectURL(link.href);
   };
 
-  const selectedColor = AIRLOOM_COLORS[colorIndex];
-  const selectedSize = AIRLOOM_SIZES[sizeIndex];
-  const isStarted = cameraState === "active" || demoMode;
+  const markerAngle = -135 + thickness * 270;
+  const dialStyle = {
+    "--dial-color": selectedColor.value,
+    "--dial-lift": `${(0.5 - thickness) * 18}px`,
+    "--dial-scale": 0.985 + thickness * 0.035,
+  } as CSSProperties;
 
   return (
-    <main className="studio-shell">
-      <header className="studio-header">
-        <a className="wordmark" href="#" aria-label="Airloom home">
-          <span className="wordmark-mark">A</span>
-          <span>
-            AIRLOOM
-            <small>DRAW IN THE SPACE BETWEEN</small>
-          </span>
-        </a>
-
-        <div className="header-status" aria-live="polite">
-          <span
-            className={`status-light ${cameraState === "active" ? "is-live" : ""}`}
-          />
-          {demoMode
-            ? "Mouse demo"
-            : cameraState === "active"
-              ? "Hand tracking live"
-              : "Camera offline"}
-        </div>
-
-        <button
-          className="quiet-button"
-          onClick={() => setHelpOpen((value) => !value)}
-          aria-expanded={helpOpen}
-        >
-          How to move
-        </button>
-      </header>
-
+    <main className="airloom-app">
       <section
         ref={stageRef}
-        className={`studio-stage ${demoMode ? "is-demo" : ""}`}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        className={`white-workspace ${demoMode ? "mouse-mode" : ""}`}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp}
+        onPointerCancel={handleCanvasPointerUp}
       >
-        <video
-          ref={videoRef}
-          className={`camera-feed ${cameraState === "active" ? "is-visible" : ""}`}
-          muted
-          playsInline
-        />
-        <div className="camera-wash" />
         <canvas ref={canvasRef} className="air-canvas" />
         <div
           ref={cursorRef}
           className="finger-cursor"
           style={{
             color: selectedColor.value,
-            width: `${18 + sizeIndex * 5}px`,
-            height: `${18 + sizeIndex * 5}px`,
+            width: `${16 + thickness * 24}px`,
+            height: `${16 + thickness * 24}px`,
           }}
         />
 
-        <div className="corner-frame corner-frame-a" />
-        <div className="corner-frame corner-frame-b" />
-
-        {isStarted && (
-          <>
-            <div className="gesture-readout">
-              <span>{menuOpen ? "MENU MODE" : demoMode ? "MOUSE INPUT" : "GESTURE"}</span>
-              <strong>{menuOpen ? "Choose your brush" : POSE_LABELS[gesture]}</strong>
-            </div>
-
-            <div className="brush-readout">
-              <span
-                className="brush-color"
-                style={{ background: selectedColor.value }}
-              />
-              <div>
-                <strong>{selectedColor.name}</strong>
-                <span>{selectedSize.name} stroke</span>
-              </div>
-            </div>
-          </>
-        )}
-
-        {!isStarted && (
-          <div className="welcome-panel">
-            <p className="eyebrow">YOUR HAND IS THE BRUSH</p>
-            <h1>
-              Paint beyond
-              <br />
-              the flat canvas.
-            </h1>
-            <p className="welcome-copy">
-              Draw luminous strokes in three dimensions using one finger. Pan
-              with two. Orbit with three. Snap to change your brush.
-            </p>
-            <div className="welcome-actions">
-              <button
-                className="primary-button"
-                onClick={startCamera}
-                disabled={cameraState === "loading"}
-              >
-                {cameraState === "loading"
-                  ? "Preparing hand tracking…"
-                  : "Enable camera"}
-              </button>
-              <button className="secondary-button" onClick={startDemo}>
-                Try with a mouse
-              </button>
-            </div>
-            <p className="privacy-note">
-              Camera frames are processed on this device and are never uploaded.
-            </p>
-            {cameraError && <p className="error-note">{cameraError}</p>}
+        <header className="floating-brand">
+          <span className="brand-dot" />
+          <div>
+            <strong>AIRLOOM</strong>
+            <small>SPACE IS THE CANVAS</small>
           </div>
-        )}
+        </header>
 
-        {helpOpen && (
-          <aside className="help-card">
-            <button
-              className="help-close"
-              onClick={() => setHelpOpen(false)}
-              aria-label="Close gesture guide"
-            >
-              Close
-            </button>
-            <p className="eyebrow">GESTURE MAP</p>
-            <h2>Move with intention.</h2>
-            <ol>
-              <li>
-                <strong>1 finger</strong>
-                <span>Draw a stroke</span>
-              </li>
-              <li>
-                <strong>2 fingers</strong>
-                <span>Pan in 2D</span>
-              </li>
-              <li>
-                <strong>3 fingers</strong>
-                <span>Orbit and zoom</span>
-              </li>
-              <li>
-                <strong>Snap</strong>
-                <span>Toggle brush menu</span>
-              </li>
-            </ol>
-          </aside>
-        )}
+        <div className="gesture-pill" aria-live="polite">
+          <span className={cameraState === "active" ? "live-dot" : "idle-dot"} />
+          {demoMode ? "Mouse drawing" : POSE_LABELS[gesture]}
+        </div>
 
-        {menuOpen && (
-          <section
-            className="brush-menu"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Brush menu"
+        <aside className="camera-bubble">
+          <div className="camera-bubble-depth" />
+          <div className="camera-window">
+            <video
+              ref={videoRef}
+              className={`camera-feed ${cameraState === "active" ? "is-visible" : ""}`}
+              muted
+              playsInline
+            />
+            {cameraState !== "active" && (
+              <div className="camera-placeholder">
+                <span>CAMERA 01</span>
+                <strong>
+                  {cameraState === "loading" ? "Starting…" : "Ready when you are"}
+                </strong>
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void startCamera();
+                  }}
+                  disabled={cameraState === "loading"}
+                >
+                  Enable camera
+                </button>
+                {!demoMode && (
+                  <button className="camera-text-button" onClick={useMouse}>
+                    Use mouse
+                  </button>
+                )}
+                {cameraError && <small>{cameraError}</small>}
+              </div>
+            )}
+            {cameraState === "active" && (
+              <>
+                <div className="camera-label">
+                  <span />
+                  LIVE HAND
+                </div>
+                <button
+                  className="camera-exit"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    useMouse();
+                  }}
+                >
+                  Exit
+                </button>
+              </>
+            )}
+          </div>
+        </aside>
+
+        <aside
+          className={`brush-dial-shell ${menuOpen ? "is-open" : ""}`}
+          style={dialStyle}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <button
+            className="dial-trigger"
+            onClick={() => {
+              primeAudio();
+              toggleMenu();
+            }}
+            aria-expanded={menuOpen}
+            aria-label={menuOpen ? "Close brush dial" : "Open brush dial"}
           >
-            <div className="menu-heading">
-              <div>
-                <p className="eyebrow">SNAP MENU</p>
-                <h2>Choose your matter.</h2>
-              </div>
-              <button className="menu-close" onClick={toggleMenu}>
-                Done
-              </button>
-            </div>
+            <span className="dial-trigger-core" />
+            <span className="dial-trigger-notch dial-trigger-notch-a" />
+            <span className="dial-trigger-notch dial-trigger-notch-b" />
+            <small>{menuOpen ? "SNAP" : "BRUSH"}</small>
+          </button>
 
-            <div className="menu-section">
-              <div className="menu-instruction">
-                <span>01</span>
-                <p>
-                  <strong>Make a fist</strong>
-                  Move left or right to select color
-                </p>
+          {menuOpen && (
+            <div className="brush-dial">
+              <div className="dial-bevel dial-bevel-outer" />
+              <div className="dial-bevel dial-bevel-inner" />
+              <div
+                ref={thicknessArcRef}
+                className="thickness-arc"
+                onPointerDown={handleThicknessDown}
+                onPointerMove={handleThicknessMove}
+                onPointerUp={handleThicknessUp}
+                onPointerCancel={handleThicknessUp}
+                aria-label="Continuous stroke thickness control"
+              >
+                {thicknessSegments.map((progress) => {
+                  const angle = -135 + progress * 270;
+                  return (
+                    <i
+                      key={progress}
+                      className={progress <= thickness ? "is-filled" : ""}
+                      style={{
+                        height: `${2.5 + progress * 11}px`,
+                        transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-139px)`,
+                      }}
+                    />
+                  );
+                })}
+                <span
+                  className="thickness-marker"
+                  style={{
+                    transform: `translate(-50%, -50%) rotate(${markerAngle}deg) translateY(-139px)`,
+                  }}
+                >
+                  <b />
+                </span>
               </div>
-              <div className="color-options">
+
+              <div className="dial-copy dial-copy-top">
+                <span>BRUSH CONTROL</span>
+                <strong>{Math.round(1 + thickness * 99)}</strong>
+              </div>
+
+              <div className="dial-color-grid">
                 {AIRLOOM_COLORS.map((color, index) => (
                   <button
                     key={color.name}
-                    className={`color-option ${index === colorIndex ? "is-selected" : ""}`}
-                    onClick={() => selectColor(index)}
+                    className={index === colorIndex ? "is-selected" : ""}
+                    onClick={() => {
+                      primeAudio();
+                      selectColor(index);
+                    }}
                     aria-label={`Select ${color.name}`}
                     aria-pressed={index === colorIndex}
                   >
                     <span style={{ background: color.value }} />
-                    <small>{color.name}</small>
                   </button>
                 ))}
               </div>
-            </div>
 
-            <div className="menu-section">
-              <div className="menu-instruction">
-                <span>02</span>
-                <p>
-                  <strong>Open your hand</strong>
-                  Move left or right to select stroke size
-                </p>
+              <div className="dial-center">
+                <span
+                  className="current-color"
+                  style={{ background: selectedColor.value }}
+                />
+                <strong>{selectedColor.name}</strong>
+                <small>
+                  {gesture === "fist"
+                    ? "MOVE HAND TO PICK COLOR"
+                    : gesture === "openPalm"
+                      ? "MOVE HAND TO SIZE"
+                      : "FIST: COLOR · OPEN: SIZE"}
+                </small>
               </div>
-              <div className="size-options">
-                {AIRLOOM_SIZES.map((size, index) => (
-                  <button
-                    key={size.name}
-                    className={`size-option ${index === sizeIndex ? "is-selected" : ""}`}
-                    onClick={() => selectSize(index)}
-                    aria-label={`Select ${size.name} stroke`}
-                    aria-pressed={index === sizeIndex}
-                  >
-                    <span
-                      style={{
-                        width: `${7 + index * 5}px`,
-                        height: `${7 + index * 5}px`,
-                        background: selectedColor.value,
-                      }}
-                    />
-                    <small>{size.name}</small>
-                  </button>
-                ))}
+
+              <div className="dial-scale-labels">
+                <span>THIN</span>
+                <span>THICK</span>
               </div>
             </div>
-            <p className="menu-tip">
-              Snap again, press M, or choose Done to return to painting.
-            </p>
-          </section>
+          )}
+        </aside>
+
+        <nav className="minimal-tools" aria-label="Artwork controls">
+          <button onClick={() => sceneRef.current?.undo()}>Undo</button>
+          <button onClick={() => sceneRef.current?.resetView()}>Reset view</button>
+          <button onClick={() => sceneRef.current?.clear()}>Clear</button>
+          <button onClick={exportArtwork}>Export</button>
+          <button
+            className="help-button"
+            onClick={() => setHelpOpen((value) => !value)}
+            aria-expanded={helpOpen}
+          >
+            ?
+          </button>
+        </nav>
+
+        {helpOpen && (
+          <aside className="gesture-guide">
+            <div>
+              <span>1</span>
+              <strong>Draw</strong>
+            </div>
+            <div>
+              <span>2</span>
+              <strong>Pan</strong>
+            </div>
+            <div>
+              <span>3</span>
+              <strong>Orbit + zoom</strong>
+            </div>
+            <div>
+              <span>✦</span>
+              <strong>Snap dial</strong>
+            </div>
+          </aside>
         )}
 
-        {isStarted && (
-          <nav className="tool-rail" aria-label="Artwork controls">
-            <button onClick={toggleMenu}>
-              <span>Brush</span>
-              <small>M</small>
-            </button>
-            <button onClick={() => sceneRef.current?.undo()}>
-              <span>Undo</span>
-              <small>Z</small>
-            </button>
-            <button onClick={() => sceneRef.current?.resetView()}>
-              <span>Reset view</span>
-            </button>
-            <button onClick={() => sceneRef.current?.clear()}>
-              <span>Clear</span>
-            </button>
-            <button className="export-button" onClick={exportArtwork}>
-              <span>Export PNG</span>
-            </button>
-          </nav>
-        )}
-
-        {isStarted && !menuOpen && (
-          <div className="gesture-strip" aria-hidden="true">
-            <span className={gesture === "draw" ? "is-active" : ""}>
-              <b>01</b> Draw
-            </span>
-            <span className={gesture === "pan2d" ? "is-active" : ""}>
-              <b>02</b> Pan
-            </span>
-            <span className={gesture === "orbit3d" ? "is-active" : ""}>
-              <b>03</b> Orbit
-            </span>
-            <span>
-              <b>✦</b> Snap for brush
-            </span>
-          </div>
-        )}
+        <p className="canvas-hint">
+          {cameraState === "active"
+            ? "One finger draws · Two pan · Three orbit · Snap opens the dial"
+            : "Draw with your mouse now, or enable the camera above"}
+        </p>
       </section>
-
-      <footer className="studio-footer">
-        <span>Experimental browser instrument</span>
-        <span>MediaPipe + Three.js</span>
-        <span>Camera data stays local</span>
-      </footer>
     </main>
   );
 }
