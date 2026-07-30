@@ -45,7 +45,7 @@ const POSE_LABELS: Record<HandPose, string> = {
   orbit3d: "Orbiting",
   fist: "Choosing color",
   openPalm: "Adjusting thickness",
-  other: "Reading gesture",
+  other: "Pinch to draw",
 };
 
 const clamp = (value: number, minimum = 0, maximum = 1) =>
@@ -461,7 +461,8 @@ export function AirloomStudio() {
         if (confirmSnap(timestamp)) return;
       }
 
-      updateGesture(result.pose);
+      const controlPose = result.drawingPinch ? "draw" : result.pose;
+      updateGesture(controlPose);
 
       if (menuOpenRef.current) {
         sceneRef.current?.endStroke();
@@ -489,7 +490,7 @@ export function AirloomStudio() {
       }
 
       const previous = previousControlRef.current;
-      if (result.pose === "draw") {
+      if (controlPose === "draw") {
         if (previous?.pose !== "draw") {
           sceneRef.current?.endStroke();
         }
@@ -515,13 +516,13 @@ export function AirloomStudio() {
         sceneRef.current?.endStroke();
       }
 
-      if (previous?.pose === result.pose && result.pose === "pan2d") {
+      if (previous?.pose === controlPose && controlPose === "pan2d") {
         sceneRef.current?.pan(
           -(result.palm.x - previous.x),
           result.palm.y - previous.y,
         );
       }
-      if (previous?.pose === result.pose && result.pose === "orbit3d") {
+      if (previous?.pose === controlPose && controlPose === "orbit3d") {
         sceneRef.current?.orbit(
           result.palm.x - previous.x,
           result.palm.y - previous.y,
@@ -530,7 +531,7 @@ export function AirloomStudio() {
       }
 
       previousControlRef.current = {
-        pose: result.pose,
+        pose: controlPose,
         x: result.palm.x,
         y: result.palm.y,
         scale: result.handScale,
@@ -820,7 +821,7 @@ export function AirloomStudio() {
         <canvas ref={canvasRef} className="air-canvas" />
         <div
           ref={cursorRef}
-          className={`finger-cursor ${eraserEnabled ? "is-eraser" : ""}`}
+          className={`finger-cursor ${eraserEnabled ? "is-eraser" : ""} ${gesture === "draw" ? "is-drawing" : "is-hovering"}`}
           style={{
             color: eraserEnabled ? "#111111" : selectedColor.value,
             width: eraserEnabled
@@ -1128,7 +1129,7 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "One finger draws · Move toward or away for depth · Two pan · Three orbit · Snap opens tools"
+            ? "Pinch thumb + index to draw · Release to stop · Move toward or away for depth · Two pan · Three orbit"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera and microphone above"}

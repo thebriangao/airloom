@@ -6,6 +6,9 @@ import type {
 } from "./types";
 
 const HOLD_MS = 115;
+const DRAW_PINCH_HOLD_MS = 65;
+const DRAW_PINCH_START_RATIO = 0.42;
+const DRAW_PINCH_RELEASE_RATIO = 0.66;
 const SNAP_COOLDOWN_MS = 900;
 const SNAP_WINDOW_MS = 650;
 
@@ -83,7 +86,6 @@ function classifyPose(landmarks: Landmark[]) {
 
   if (fingerCount === 0) pose = "fist";
   if (fingerCount === 4) pose = "openPalm";
-  if (fingers[0] && !fingers[1] && !fingers[2] && !fingers[3]) pose = "draw";
   if (fingers[0] && fingers[1] && !fingers[2] && !fingers[3]) pose = "pan2d";
   if (fingers[0] && fingers[1] && fingers[2] && !fingers[3])
     pose = "orbit3d";
@@ -98,6 +100,8 @@ export class GestureEngine {
   private snapArmedAt = 0;
   private lastSnapAt = 0;
   private previousMiddleTip?: Landmark;
+  private drawingPinch = false;
+  private drawingPinchCandidateAt = 0;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
     const { pose: rawPose, fingerCount } = classifyPose(landmarks);
@@ -111,9 +115,28 @@ export class GestureEngine {
 
     const handScale = distance(landmarks[0], landmarks[9]);
     const palmSpan = Math.max(0.025, distance(landmarks[5], landmarks[17]));
+    const thumbIndexRatio =
+      distance(landmarks[4], landmarks[8]) / palmSpan;
     const thumbMiddleRatio =
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];
+
+    if (this.drawingPinch) {
+      if (thumbIndexRatio > DRAW_PINCH_RELEASE_RATIO) {
+        this.drawingPinch = false;
+        this.drawingPinchCandidateAt = 0;
+      }
+    } else if (thumbIndexRatio < DRAW_PINCH_START_RATIO) {
+      if (this.drawingPinchCandidateAt === 0) {
+        this.drawingPinchCandidateAt = timestamp;
+      } else if (
+        timestamp - this.drawingPinchCandidateAt >= DRAW_PINCH_HOLD_MS
+      ) {
+        this.drawingPinch = true;
+      }
+    } else {
+      this.drawingPinchCandidateAt = 0;
+    }
 
     if (thumbMiddleRatio < 0.72) {
       this.snapArmedAt = timestamp;
@@ -145,6 +168,7 @@ export class GestureEngine {
 
     return {
       pose: this.stable,
+      drawingPinch: this.drawingPinch,
       snap,
       snapPose,
       fingerCount,
@@ -166,5 +190,7 @@ export class GestureEngine {
     this.candidateSince = 0;
     this.snapArmedAt = 0;
     this.previousMiddleTip = undefined;
+    this.drawingPinch = false;
+    this.drawingPinchCandidateAt = 0;
   }
 }

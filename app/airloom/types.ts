@@ -21,6 +21,7 @@ export type HandPose =
 
 export type GestureResult = {
   pose: HandPose;
+  drawingPinch: boolean;
   snap: boolean;
   snapPose: boolean;
   fingerCount: number;

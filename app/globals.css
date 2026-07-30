@@ -164,7 +164,9 @@ button {
   transition:
     width 120ms ease,
     height 120ms ease,
-    opacity 80ms ease;
+    opacity 80ms ease,
+    transform 100ms ease,
+    background 100ms ease;
   box-shadow:
     0 0 0 4px rgba(255, 255, 255, 0.82),
     0 4px 14px rgba(0, 0, 0, 0.18);
@@ -176,6 +178,23 @@ button {
   border-radius: 50%;
   background: currentColor;
   content: "";
+}
+
+.finger-cursor.is-hovering {
+  background: rgba(251, 251, 248, 0.72);
+}
+
+.finger-cursor.is-drawing {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  transform: translate(-50%, -50%) scale(0.78);
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.9),
+    0 0 0 7px color-mix(in srgb, currentColor 18%, transparent),
+    0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.finger-cursor.is-drawing::after {
+  inset: 26%;
 }
 
 .finger-cursor.is-eraser {
