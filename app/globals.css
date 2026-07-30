@@ -180,6 +180,18 @@ button {
   content: "";
 }
 
+.finger-cursor.is-eraser {
+  border-style: dashed;
+  background: rgba(251, 251, 248, 0.72);
+  box-shadow:
+    0 0 0 3px rgba(17, 17, 17, 0.1),
+    0 4px 14px rgba(0, 0, 0, 0.14);
+}
+
+.finger-cursor.is-eraser::after {
+  inset: 43%;
+}
+
 .camera-bubble {
   position: absolute;
   z-index: 12;
@@ -356,7 +368,7 @@ button {
   position: absolute;
   z-index: 4;
   top: 50%;
-  right: 18px;
+  right: 6px;
   display: flex;
   width: 42px;
   height: 112px;
@@ -471,6 +483,18 @@ button {
   transform: translate3d(0, -50%, 0);
   visibility: visible;
   transition-delay: 0s;
+}
+
+.brush-cartridge-shell.is-eraser .brush-cartridge {
+  width: 278px;
+}
+
+.brush-cartridge-shell.is-eraser .cartridge-body {
+  padding-block: 17px;
+}
+
+.brush-cartridge-shell.is-eraser .cartridge-footer {
+  min-height: 62px;
 }
 
 .cartridge-backplate {
@@ -765,6 +789,23 @@ button {
     0 4px 7px rgba(0, 0, 0, 0.35);
 }
 
+.selected-color-chip.eraser-chip {
+  position: relative;
+  overflow: hidden;
+}
+
+.selected-color-chip.eraser-chip::after {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #777;
+  background: #f7f7f2;
+  content: "";
+  transform: rotate(38deg);
+}
+
 .selected-brush small,
 .selected-brush strong {
   display: block;
@@ -836,6 +877,11 @@ button {
   color: #fff;
 }
 
+.minimal-tools button.is-active {
+  background: #111;
+  color: #fff;
+}
+
 .minimal-tools button:last-child {
   border-right: 0;
 }
@@ -852,7 +898,7 @@ button {
   bottom: 77px;
   left: 32px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   overflow: hidden;
   border: 1px solid #cfcfca;
   border-radius: 17px;

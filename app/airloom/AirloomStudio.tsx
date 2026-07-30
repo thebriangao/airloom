@@ -13,6 +13,7 @@ import { AirScene } from "./AirScene";
 import { GestureEngine } from "./gestureEngine";
 import {
   AIRLOOM_COLORS,
+  eraserRadiusFromThickness,
   radiusFromThickness,
   type HandPose,
   type Landmark,
@@ -24,7 +25,13 @@ type CameraState =
   | "calibrating"
   | "active"
   | "error";
-type SoundKind = "open" | "close" | "color" | "size";
+type SoundKind =
+  | "open"
+  | "close"
+  | "color"
+  | "size"
+  | "eraserOn"
+  | "eraserOff";
 
 const POSE_LABELS: Record<HandPose, string> = {
   none: "Show your hand",
@@ -41,6 +48,17 @@ const clamp = (value: number, minimum = 0, maximum = 1) =>
 
 const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
 
+const palmCenter = (landmarks: Landmark[]) => {
+  const indices = [0, 5, 9, 13, 17];
+  return indices.reduce(
+    (center, index) => ({
+      x: center.x + landmarks[index].x / indices.length,
+      y: center.y + landmarks[index].y / indices.length,
+    }),
+    { x: 0, y: 0 },
+  );
+};
+
 export function AirloomStudio() {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -50,6 +68,16 @@ export function AirloomStudio() {
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const microphoneSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const microphoneAnalyserRef = useRef<AnalyserNode | null>(null);
+  const microphoneSamplesRef = useRef(new Float32Array(1024));
+  const microphoneBaselineRef = useRef(0.008);
+  const lastAudioTransientRef = useRef(-Infinity);
+  const lastVisualSnapRef = useRef(-Infinity);
+  const lastConfirmedSnapRef = useRef(-Infinity);
+  const lastVisualClapRef = useRef(-Infinity);
+  const lastConfirmedClapRef = useRef(-Infinity);
+  const clapContactRef = useRef(false);
   const animationRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
   const gestureEngineRef = useRef(new GestureEngine());
@@ -64,6 +92,8 @@ export function AirloomStudio() {
   const menuOpenRef = useRef(false);
   const colorIndexRef = useRef(0);
   const thicknessRef = useRef(0.32);
+  const eraserThicknessRef = useRef(0.42);
+  const eraserEnabledRef = useRef(false);
   const lastSizeTickRef = useRef(4);
   const pointerDrawingRef = useRef(false);
 
@@ -73,10 +103,13 @@ export function AirloomStudio() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [colorIndex, setColorIndex] = useState(0);
   const [thickness, setThickness] = useState(0.32);
+  const [eraserThickness, setEraserThickness] = useState(0.42);
+  const [eraserEnabled, setEraserEnabled] = useState(false);
   const [demoMode, setDemoMode] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
+  const activeThickness = eraserEnabled ? eraserThickness : thickness;
 
   const primeAudio = useCallback((): AudioContext | null => {
     try {
@@ -113,10 +146,13 @@ export function AirloomStudio() {
         close: [420, 180],
         color: [520, 610],
         size: [170, 220],
+        eraserOn: [310, 155],
+        eraserOff: [180, 360],
       };
       const [start, end] = frequencies[kind];
 
-      oscillator.type = kind === "size" ? "triangle" : "sine";
+      oscillator.type =
+        kind === "size" || kind.startsWith("eraser") ? "triangle" : "sine";
       oscillator.frequency.setValueAtTime(start, now);
       oscillator.frequency.exponentialRampToValueAtTime(end, now + 0.075);
       filter.type = "lowpass";
@@ -162,6 +198,30 @@ export function AirloomStudio() {
     [playSound],
   );
 
+  const selectEraserThickness = useCallback(
+    (value: number, audible = true) => {
+      const next = clamp(value);
+      if (Math.abs(eraserThicknessRef.current - next) < 0.003) return;
+      eraserThicknessRef.current = next;
+      setEraserThickness(next);
+      const tick = Math.floor(next * 14);
+      if (audible && tick !== lastSizeTickRef.current) {
+        lastSizeTickRef.current = tick;
+        playSound("size");
+      }
+    },
+    [playSound],
+  );
+
+  const toggleEraser = useCallback(() => {
+    const next = !eraserEnabledRef.current;
+    eraserEnabledRef.current = next;
+    setEraserEnabled(next);
+    sceneRef.current?.endStroke();
+    previousControlRef.current = null;
+    playSound(next ? "eraserOn" : "eraserOff");
+  }, [playSound]);
+
   const toggleMenu = useCallback(() => {
     const next = !menuOpenRef.current;
     menuOpenRef.current = next;
@@ -170,6 +230,69 @@ export function AirloomStudio() {
     previousControlRef.current = null;
     playSound(next ? "open" : "close");
   }, [playSound]);
+
+  const confirmSnap = useCallback(
+    (timestamp: number) => {
+      const paired =
+        Math.abs(timestamp - lastAudioTransientRef.current) <= 320 &&
+        Math.abs(timestamp - lastVisualSnapRef.current) <= 320;
+      const cooledDown = timestamp - lastConfirmedSnapRef.current > 950;
+      const clapIsNotWinning = timestamp - lastConfirmedClapRef.current > 500;
+      if (!paired || !cooledDown || !clapIsNotWinning) return false;
+      lastConfirmedSnapRef.current = timestamp;
+      lastVisualSnapRef.current = -Infinity;
+      toggleMenu();
+      return true;
+    },
+    [toggleMenu],
+  );
+
+  const confirmClap = useCallback(
+    (timestamp: number) => {
+      const paired =
+        Math.abs(timestamp - lastAudioTransientRef.current) <= 340 &&
+        Math.abs(timestamp - lastVisualClapRef.current) <= 340;
+      const cooledDown = timestamp - lastConfirmedClapRef.current > 1300;
+      if (!paired || !cooledDown) return false;
+      lastConfirmedClapRef.current = timestamp;
+      lastVisualClapRef.current = -Infinity;
+      toggleEraser();
+      return true;
+    },
+    [toggleEraser],
+  );
+
+  const sampleMicrophone = useCallback(
+    (timestamp: number) => {
+      const analyser = microphoneAnalyserRef.current;
+      if (!analyser) return;
+      const samples = microphoneSamplesRef.current;
+      analyser.getFloatTimeDomainData(samples);
+
+      let peak = 0;
+      let squareSum = 0;
+      for (const sample of samples) {
+        const magnitude = Math.abs(sample);
+        peak = Math.max(peak, magnitude);
+        squareSum += sample * sample;
+      }
+      const rms = Math.sqrt(squareSum / samples.length);
+      const baseline = microphoneBaselineRef.current;
+      if (rms < baseline * 2.2) {
+        microphoneBaselineRef.current = baseline * 0.985 + rms * 0.015;
+      }
+
+      const transient =
+        peak > Math.max(0.09, baseline * 5.2) &&
+        rms > Math.max(0.018, baseline * 2.8) &&
+        timestamp - lastAudioTransientRef.current > 135;
+      if (!transient) return;
+
+      lastAudioTransientRef.current = timestamp;
+      if (!confirmClap(timestamp)) confirmSnap(timestamp);
+    },
+    [confirmClap, confirmSnap],
+  );
 
   const updateGesture = useCallback((next: HandPose) => {
     if (gestureRef.current === next) return;
@@ -208,8 +331,49 @@ export function AirloomStudio() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [toggleMenu]);
 
-  const processHand = useCallback(
-    (landmarks: Landmark[], timestamp: number) => {
+  const applyToolAtPoint = useCallback((point: Parameters<AirScene["addPoint"]>[0]) => {
+    if (eraserEnabledRef.current) {
+      sceneRef.current?.eraseAt(
+        point,
+        eraserRadiusFromThickness(eraserThicknessRef.current),
+      );
+      return;
+    }
+    sceneRef.current?.addPoint(
+      point,
+      AIRLOOM_COLORS[colorIndexRef.current].value,
+      radiusFromThickness(thicknessRef.current),
+    );
+  }, []);
+
+  const detectClap = useCallback(
+    (hands: Landmark[][], timestamp: number) => {
+      if (hands.length < 2) {
+        clapContactRef.current = false;
+        return false;
+      }
+
+      const firstPalm = palmCenter(hands[0]);
+      const secondPalm = palmCenter(hands[1]);
+      const separation = Math.hypot(
+        firstPalm.x - secondPalm.x,
+        firstPalm.y - secondPalm.y,
+      );
+      if (separation > 0.27) clapContactRef.current = false;
+      if (separation >= 0.16 || clapContactRef.current) return false;
+
+      clapContactRef.current = true;
+      lastVisualClapRef.current = timestamp;
+      return confirmClap(timestamp);
+    },
+    [confirmClap],
+  );
+
+  const processHands = useCallback(
+    (hands: Landmark[][], timestamp: number) => {
+      if (detectClap(hands, timestamp)) return;
+      const landmarks = hands[0];
+      if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
 
       if (cursorRef.current) {
@@ -219,7 +383,8 @@ export function AirloomStudio() {
       }
 
       if (result.snap) {
-        toggleMenu();
+        lastVisualSnapRef.current = timestamp;
+        confirmSnap(timestamp);
         return;
       }
 
@@ -229,7 +394,7 @@ export function AirloomStudio() {
         sceneRef.current?.endStroke();
         previousControlRef.current = null;
 
-        if (result.pose === "fist") {
+        if (result.pose === "fist" && !eraserEnabledRef.current) {
           const column = Math.min(
             4,
             Math.floor(gridPosition(1 - result.palm.x) * 5),
@@ -240,7 +405,12 @@ export function AirloomStudio() {
           );
           selectColor(row * 5 + column);
         } else if (result.pose === "openPalm") {
-          selectThickness(gridPosition(1 - result.palm.x));
+          const nextThickness = gridPosition(1 - result.palm.x);
+          if (eraserEnabledRef.current) {
+            selectEraserThickness(nextThickness);
+          } else {
+            selectThickness(nextThickness);
+          }
         }
         return;
       }
@@ -253,13 +423,12 @@ export function AirloomStudio() {
         }
         const baseline = depthBaselineRef.current ?? result.handScale;
         const depth = (result.handScale - baseline) * 19;
-        const point = sceneRef.current?.normalizedToWorld(result.indexTip, depth);
+        const point = sceneRef.current?.normalizedToArtwork(
+          result.indexTip,
+          depth,
+        );
         if (point) {
-          sceneRef.current?.addPoint(
-            point,
-            AIRLOOM_COLORS[colorIndexRef.current].value,
-            radiusFromThickness(thicknessRef.current),
-          );
+          applyToolAtPoint(point);
         }
       } else {
         sceneRef.current?.endStroke();
@@ -286,17 +455,53 @@ export function AirloomStudio() {
         scale: result.handScale,
       };
     },
-    [selectColor, selectThickness, toggleMenu, updateGesture],
+    [
+      applyToolAtPoint,
+      confirmSnap,
+      detectClap,
+      selectColor,
+      selectEraserThickness,
+      selectThickness,
+      updateGesture,
+    ],
+  );
+
+  const setupMicrophone = useCallback(
+    (stream: MediaStream) => {
+      const context = primeAudio();
+      if (!context || stream.getAudioTracks().length === 0) {
+        throw new Error(
+          "Microphone access is required to confirm snaps and claps.",
+        );
+      }
+      microphoneSourceRef.current?.disconnect();
+      microphoneAnalyserRef.current?.disconnect();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.1;
+      source.connect(analyser);
+      microphoneSourceRef.current = source;
+      microphoneAnalyserRef.current = analyser;
+      microphoneBaselineRef.current = 0.008;
+      lastAudioTransientRef.current = -Infinity;
+    },
+    [primeAudio],
   );
 
   const stopCamera = useCallback(() => {
     window.cancelAnimationFrame(animationRef.current);
+    microphoneSourceRef.current?.disconnect();
+    microphoneAnalyserRef.current?.disconnect();
+    microphoneSourceRef.current = null;
+    microphoneAnalyserRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     handLandmarkerRef.current?.close();
     handLandmarkerRef.current = null;
     gestureEngineRef.current.reset();
+    clapContactRef.current = false;
     previousControlRef.current = null;
     if (cursorRef.current) cursorRef.current.style.opacity = "0";
   }, []);
@@ -305,6 +510,7 @@ export function AirloomStudio() {
 
   const startTrackingLoop = useCallback(() => {
     const loop = () => {
+      const timestamp = performance.now();
       const video = videoRef.current;
       const landmarker = handLandmarkerRef.current;
       if (
@@ -314,22 +520,24 @@ export function AirloomStudio() {
         video.currentTime !== lastVideoTimeRef.current
       ) {
         lastVideoTimeRef.current = video.currentTime;
-        const result = landmarker.detectForVideo(video, performance.now());
-        const landmarks = result.landmarks[0] as Landmark[] | undefined;
-        if (landmarks) {
-          processHand(landmarks, performance.now());
+        const result = landmarker.detectForVideo(video, timestamp);
+        const hands = result.landmarks as Landmark[][];
+        if (hands.length > 0) {
+          processHands(hands, timestamp);
         } else {
           gestureEngineRef.current.reset();
+          clapContactRef.current = false;
           sceneRef.current?.endStroke();
           previousControlRef.current = null;
           updateGesture("none");
           if (cursorRef.current) cursorRef.current.style.opacity = "0";
         }
       }
+      sampleMicrophone(timestamp);
       animationRef.current = window.requestAnimationFrame(loop);
     };
     animationRef.current = window.requestAnimationFrame(loop);
-  }, [processHand, updateGesture]);
+  }, [processHands, sampleMicrophone, updateGesture]);
 
   const startCamera = async () => {
     setCameraState("requesting");
@@ -348,12 +556,17 @@ export function AirloomStudio() {
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
-        audio: false,
+        audio: {
+          autoGainControl: true,
+          echoCancellation: true,
+          noiseSuppression: false,
+        },
       });
       streamRef.current = stream;
       if (!videoRef.current) throw new Error("Camera surface unavailable.");
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
+      setupMicrophone(stream);
       setCameraState("calibrating");
 
       const { FilesetResolver, HandLandmarker } = await import(
@@ -373,7 +586,7 @@ export function AirloomStudio() {
               delegate: "GPU",
             },
             runningMode: "VIDEO",
-            numHands: 1,
+            numHands: 2,
             minHandDetectionConfidence: 0.58,
             minHandPresenceConfidence: 0.55,
             minTrackingConfidence: 0.55,
@@ -389,7 +602,7 @@ export function AirloomStudio() {
               delegate: "CPU",
             },
             runningMode: "VIDEO",
-            numHands: 1,
+            numHands: 2,
           },
         );
       }
@@ -406,12 +619,12 @@ export function AirloomStudio() {
           : "";
       setCameraError(
         errorName === "NotAllowedError"
-          ? "Camera access was blocked. Allow it in your browser's site settings, then try again."
+          ? "Camera or microphone access was blocked. Allow both in your browser's site settings, then try again."
           : errorName === "NotFoundError"
-            ? "No camera was found on this device."
+            ? "No camera or microphone was found on this device."
             : error instanceof Error
               ? error.message
-              : "Airloom could not start the camera.",
+              : "Airloom could not start the camera and microphone.",
       );
     }
   };
@@ -443,17 +656,11 @@ export function AirloomStudio() {
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerDrawingRef.current = true;
     const pointer = pointerPosition(event);
-    const point = sceneRef.current?.normalizedToWorld(
+    const point = sceneRef.current?.normalizedToArtwork(
       { ...pointer, x: 1 - pointer.x },
       0,
     );
-    if (point) {
-      sceneRef.current?.addPoint(
-        point,
-        AIRLOOM_COLORS[colorIndexRef.current].value,
-        radiusFromThickness(thicknessRef.current),
-      );
-    }
+    if (point) applyToolAtPoint(point);
   };
 
   const handleCanvasPointerMove = (
@@ -461,17 +668,11 @@ export function AirloomStudio() {
   ) => {
     if (!pointerDrawingRef.current || !demoMode) return;
     const pointer = pointerPosition(event);
-    const point = sceneRef.current?.normalizedToWorld(
+    const point = sceneRef.current?.normalizedToArtwork(
       { ...pointer, x: 1 - pointer.x },
       0,
     );
-    if (point) {
-      sceneRef.current?.addPoint(
-        point,
-        AIRLOOM_COLORS[colorIndexRef.current].value,
-        radiusFromThickness(thicknessRef.current),
-      );
-    }
+    if (point) applyToolAtPoint(point);
   };
 
   const handleCanvasPointerUp = () => {
@@ -516,10 +717,10 @@ export function AirloomStudio() {
   const cameraHasVideo =
     cameraState === "calibrating" || cameraState === "active";
   const cartridgeStyle = {
-    "--cartridge-color": selectedColor.value,
-    "--thickness-position": `${thickness * 100}%`,
-    "--marker-size": `${13 + thickness * 9}px`,
-    "--stroke-height": `${2 + thickness * 20}px`,
+    "--cartridge-color": eraserEnabled ? "#6f6f6a" : selectedColor.value,
+    "--thickness-position": `${activeThickness * 100}%`,
+    "--marker-size": `${13 + activeThickness * 9}px`,
+    "--stroke-height": `${2 + activeThickness * 20}px`,
   } as CSSProperties;
 
   return (
@@ -535,11 +736,15 @@ export function AirloomStudio() {
         <canvas ref={canvasRef} className="air-canvas" />
         <div
           ref={cursorRef}
-          className="finger-cursor"
+          className={`finger-cursor ${eraserEnabled ? "is-eraser" : ""}`}
           style={{
-            color: selectedColor.value,
-            width: `${16 + thickness * 24}px`,
-            height: `${16 + thickness * 24}px`,
+            color: eraserEnabled ? "#111111" : selectedColor.value,
+            width: eraserEnabled
+              ? `${28 + eraserThickness * 54}px`
+              : `${16 + thickness * 24}px`,
+            height: eraserEnabled
+              ? `${28 + eraserThickness * 54}px`
+              : `${16 + thickness * 24}px`,
           }}
         />
 
@@ -558,8 +763,12 @@ export function AirloomStudio() {
             : cameraState === "calibrating"
               ? "Loading hand tracking"
               : demoMode
-                ? "Mouse drawing"
-                : POSE_LABELS[gesture]}
+                ? eraserEnabled
+                  ? "Mouse eraser"
+                  : "Mouse drawing"
+                : eraserEnabled
+                  ? `Eraser · ${POSE_LABELS[gesture]}`
+                  : POSE_LABELS[gesture]}
         </div>
 
         <aside
@@ -591,7 +800,9 @@ export function AirloomStudio() {
                   }}
                   disabled={cameraState === "requesting"}
                 >
-                  {cameraState === "error" ? "Try again" : "Enable camera"}
+                  {cameraState === "error"
+                    ? "Try again"
+                    : "Enable camera + mic"}
                 </button>
                 {!demoMode && (
                   <button className="camera-text-button" onClick={useMouse}>
@@ -605,7 +816,9 @@ export function AirloomStudio() {
               <>
                 <div className="camera-label">
                   <span />
-                  {cameraState === "active" ? "LIVE HAND" : "LOADING TRACKING"}
+                  {cameraState === "active"
+                    ? "LIVE HAND + MIC"
+                    : "LOADING TRACKING"}
                 </div>
                 <button
                   className="camera-exit"
@@ -622,7 +835,7 @@ export function AirloomStudio() {
         </aside>
 
         <aside
-          className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""}`}
+          className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -635,7 +848,9 @@ export function AirloomStudio() {
             aria-expanded={menuOpen}
             aria-controls="brush-cartridge"
             aria-label={
-              menuOpen ? "Close brush cartridge" : "Open brush cartridge"
+              menuOpen
+                ? `Close ${eraserEnabled ? "eraser" : "brush"} cartridge`
+                : `Open ${eraserEnabled ? "eraser" : "brush"} cartridge`
             }
           >
             <span className="cartridge-tab-light" />
@@ -644,7 +859,7 @@ export function AirloomStudio() {
               <i />
               <i />
             </span>
-            <small>BRUSH</small>
+            <small>{eraserEnabled ? "ERASE" : "BRUSH"}</small>
           </button>
 
           <div
@@ -656,7 +871,9 @@ export function AirloomStudio() {
             <header className="cartridge-header">
               <div>
                 <span>AIRLOOM TOOL</span>
-                <strong>BRUSH CARTRIDGE</strong>
+                <strong>
+                  {eraserEnabled ? "ERASER CARTRIDGE" : "BRUSH CARTRIDGE"}
+                </strong>
               </div>
               <div className="cartridge-status">
                 <i />
@@ -665,45 +882,49 @@ export function AirloomStudio() {
             </header>
 
             <div className="cartridge-body">
-              <section className="cartridge-section color-section">
-                <div className="cartridge-section-label">
-                  <span>01</span>
-                  <div>
-                    <strong>COLOR</strong>
-                    <small>FIST + MOVE</small>
+              {!eraserEnabled && (
+                <section className="cartridge-section color-section">
+                  <div className="cartridge-section-label">
+                    <span>01</span>
+                    <div>
+                      <strong>COLOR</strong>
+                      <small>FIST + MOVE</small>
+                    </div>
                   </div>
-                </div>
 
-                <div className="cartridge-color-grid">
-                {AIRLOOM_COLORS.map((color, index) => (
-                  <button
-                    key={color.name}
-                    className={index === colorIndex ? "is-selected" : ""}
-                    onClick={() => {
-                      primeAudio();
-                      selectColor(index);
-                    }}
-                    aria-label={`Select ${color.name}`}
-                    aria-pressed={index === colorIndex}
-                    tabIndex={menuOpen ? 0 : -1}
-                  >
-                    <span
-                      className="color-swatch-core"
-                      style={{ background: color.value }}
-                    />
-                  </button>
-                ))}
-              </div>
-              </section>
+                  <div className="cartridge-color-grid">
+                    {AIRLOOM_COLORS.map((color, index) => (
+                      <button
+                        key={color.name}
+                        className={index === colorIndex ? "is-selected" : ""}
+                        onClick={() => {
+                          primeAudio();
+                          selectColor(index);
+                        }}
+                        aria-label={`Select ${color.name}`}
+                        aria-pressed={index === colorIndex}
+                        tabIndex={menuOpen ? 0 : -1}
+                      >
+                        <span
+                          className="color-swatch-core"
+                          style={{ background: color.value }}
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               <section className="cartridge-section thickness-section">
                 <div className="cartridge-section-label">
-                  <span>02</span>
+                  <span>{eraserEnabled ? "01" : "02"}</span>
                   <div>
-                    <strong>THICKNESS</strong>
+                    <strong>
+                      {eraserEnabled ? "ERASER SIZE" : "THICKNESS"}
+                    </strong>
                     <small>OPEN PALM + MOVE</small>
                   </div>
-                  <b>{Math.round(1 + thickness * 99)}</b>
+                  <b>{Math.round(1 + activeThickness * 99)}</b>
                 </div>
 
                 <div className="thickness-control">
@@ -714,12 +935,21 @@ export function AirloomStudio() {
                       min="0"
                       max="1"
                       step="0.005"
-                      value={thickness}
+                      value={activeThickness}
                       onPointerDown={() => primeAudio()}
-                      onChange={(event) =>
-                        selectThickness(Number(event.currentTarget.value))
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (eraserEnabled) {
+                          selectEraserThickness(value);
+                        } else {
+                          selectThickness(value);
+                        }
+                      }}
+                      aria-label={
+                        eraserEnabled
+                          ? "Continuous eraser size"
+                          : "Continuous stroke thickness"
                       }
-                      aria-label="Continuous stroke thickness"
                       tabIndex={menuOpen ? 0 : -1}
                     />
                   </div>
@@ -734,18 +964,24 @@ export function AirloomStudio() {
             <footer className="cartridge-footer">
               <div className="selected-brush">
                 <span
-                  className="selected-color-chip"
-                  style={{ background: selectedColor.value }}
+                  className={`selected-color-chip ${eraserEnabled ? "eraser-chip" : ""}`}
+                  style={{
+                    background: eraserEnabled ? "#deded8" : selectedColor.value,
+                  }}
                 />
                 <div>
-                  <small>ACTIVE BRUSH</small>
-                  <strong>{selectedColor.name}</strong>
+                  <small>ACTIVE TOOL</small>
+                  <strong>
+                    {eraserEnabled ? "ERASER" : selectedColor.name}
+                  </strong>
                 </div>
               </div>
               <span className="selected-stroke-preview" />
               <small className="cartridge-gesture-hint">
                 {gesture === "fist"
-                  ? "MOVE TO PICK COLOR"
+                  ? eraserEnabled
+                    ? "OPEN PALM TO SIZE"
+                    : "MOVE TO PICK COLOR"
                   : gesture === "openPalm"
                     ? "MOVE TO SIZE"
                     : "SNAP TO HOLSTER"}
@@ -758,6 +994,12 @@ export function AirloomStudio() {
           <button onClick={() => sceneRef.current?.undo()}>Undo</button>
           <button onClick={() => sceneRef.current?.resetView()}>Reset view</button>
           <button onClick={() => sceneRef.current?.clear()}>Clear</button>
+          <button
+            className={eraserEnabled ? "is-active" : ""}
+            onClick={toggleEraser}
+          >
+            Eraser
+          </button>
           <button onClick={exportArtwork}>Export</button>
           <button
             className="help-button"
@@ -784,17 +1026,21 @@ export function AirloomStudio() {
             </div>
             <div>
               <span>✦</span>
-              <strong>Snap cartridge</strong>
+              <strong>Snap + sound</strong>
+            </div>
+            <div>
+              <span>◉</span>
+              <strong>Clap eraser</strong>
             </div>
           </aside>
         )}
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "One finger draws · Two pan · Three orbit · Snap ejects the cartridge"
+            ? "One finger draws · Two pan · Three orbit · Audible snap opens tools · Clap toggles eraser"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
-            : "Draw with your mouse now, or enable the camera above"}
+            : "Draw with your mouse now, or enable the camera and microphone above"}
         </p>
       </section>
     </main>

@@ -66,3 +66,8 @@ export function radiusFromThickness(thickness: number) {
     (AIRLOOM_MAX_RADIUS - AIRLOOM_MIN_RADIUS) * clamped ** 1.45
   );
 }
+
+export function eraserRadiusFromThickness(thickness: number) {
+  const clamped = Math.max(0, Math.min(1, thickness));
+  return 0.09 + clamped ** 1.35 * 0.58;
+}

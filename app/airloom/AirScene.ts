@@ -8,9 +8,54 @@ type Stroke = {
   mesh: THREE.Mesh;
 };
 
+export function projectNormalizedPointToArtwork(
+  camera: THREE.PerspectiveCamera,
+  artwork: THREE.Object3D,
+  raycaster: THREE.Raycaster,
+  point: Point3,
+  depth: number,
+) {
+  artwork.updateMatrixWorld(true);
+  raycaster.setFromCamera(
+    new THREE.Vector2(1 - point.x * 2, 1 - point.y * 2),
+    camera,
+  );
+
+  const inverseArtworkMatrix = artwork.matrixWorld.clone().invert();
+  const origin = raycaster.ray.origin.clone().applyMatrix4(inverseArtworkMatrix);
+  const direction = raycaster.ray.direction
+    .clone()
+    .transformDirection(inverseArtworkMatrix);
+  const targetZ = THREE.MathUtils.clamp(depth, -2.15, 2.15);
+  if (Math.abs(direction.z) < 0.0001) return undefined;
+  const distanceToPlane = (targetZ - origin.z) / direction.z;
+  if (distanceToPlane < 0) return undefined;
+  return origin.add(direction.multiplyScalar(distanceToPlane));
+}
+
+export function splitStrokeOutsideEraser(
+  points: THREE.Vector3[],
+  eraserPoint: THREE.Vector3,
+  radius: number,
+) {
+  const runs: THREE.Vector3[][] = [];
+  let run: THREE.Vector3[] = [];
+  for (const point of points) {
+    if (point.distanceTo(eraserPoint) > radius) {
+      run.push(point);
+    } else if (run.length > 0) {
+      runs.push(run);
+      run = [];
+    }
+  }
+  if (run.length > 0) runs.push(run);
+  return runs;
+}
+
 export class AirScene {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+  private raycaster = new THREE.Raycaster();
   private renderer: THREE.WebGLRenderer;
   private artwork = new THREE.Group();
   private strokes: Stroke[] = [];
@@ -52,37 +97,72 @@ export class AirScene {
     this.renderer.setSize(this.width, this.height, false);
   }
 
-  normalizedToWorld(point: Point3, depth: number) {
-    const ndc = new THREE.Vector3(1 - point.x * 2, 1 - point.y * 2, 0.1);
-    ndc.unproject(this.camera);
-    const direction = ndc.sub(this.camera.position).normalize();
-    const targetZ = THREE.MathUtils.clamp(depth, -2.15, 2.15);
-    const distanceToPlane =
-      (targetZ - this.camera.position.z) / direction.z;
-    return this.camera.position
-      .clone()
-      .add(direction.multiplyScalar(distanceToPlane));
+  normalizedToArtwork(point: Point3, depth: number) {
+    this.scene.updateMatrixWorld(true);
+    return projectNormalizedPointToArtwork(
+      this.camera,
+      this.artwork,
+      this.raycaster,
+      point,
+      depth,
+    );
+  }
+
+  private geometryForPoints(points: THREE.Vector3[], radius: number) {
+    if (points.length === 1) {
+      return new THREE.SphereGeometry(radius, 10, 10);
+    }
+    const curvePoints =
+      points.length === 2
+        ? [points[0], points[0].clone().lerp(points[1], 0.5), points[1]]
+        : points;
+    const curve = new THREE.CatmullRomCurve3(curvePoints, false, "centripetal");
+    return new THREE.TubeGeometry(
+      curve,
+      Math.min(420, Math.max(10, points.length * 3)),
+      radius,
+      8,
+      false,
+    );
+  }
+
+  private createStroke(points: THREE.Vector3[], color: string, radius: number) {
+    const material = new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.52,
+      roughness: 0.32,
+      metalness: 0.06,
+    });
+    const mesh = new THREE.Mesh(
+      this.geometryForPoints(points, radius),
+      material,
+    );
+    if (points.length === 1) mesh.position.copy(points[0]);
+    this.artwork.add(mesh);
+    return {
+      points: points.map((point) => point.clone()),
+      color,
+      radius,
+      mesh,
+    };
+  }
+
+  private rebuildStroke(stroke: Stroke) {
+    stroke.mesh.geometry.dispose();
+    stroke.mesh.geometry = this.geometryForPoints(stroke.points, stroke.radius);
+    stroke.mesh.position.set(0, 0, 0);
+  }
+
+  private removeStroke(stroke: Stroke) {
+    stroke.mesh.geometry.dispose();
+    (stroke.mesh.material as THREE.Material).dispose();
+    this.artwork.remove(stroke.mesh);
   }
 
   addPoint(point: THREE.Vector3, color: string, radius: number) {
     if (!this.activeStroke) {
-      const geometry = new THREE.SphereGeometry(radius, 10, 10);
-      const material = new THREE.MeshStandardMaterial({
-        color,
-        emissive: color,
-        emissiveIntensity: 0.52,
-        roughness: 0.32,
-        metalness: 0.06,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.copy(point);
-      this.artwork.add(mesh);
-      this.activeStroke = {
-        points: [point.clone()],
-        color,
-        radius,
-        mesh,
-      };
+      this.activeStroke = this.createStroke([point], color, radius);
       this.strokes.push(this.activeStroke);
       return;
     }
@@ -92,22 +172,41 @@ export class AirScene {
     if (smoothed.distanceTo(previous) < 0.018) return;
 
     this.activeStroke.points.push(smoothed);
-    const points = this.activeStroke.points;
-    const curvePoints =
-      points.length === 2
-        ? [points[0], points[0].clone().lerp(points[1], 0.5), points[1]]
-        : points;
-    const curve = new THREE.CatmullRomCurve3(curvePoints, false, "centripetal");
-    const geometry = new THREE.TubeGeometry(
-      curve,
-      Math.min(420, Math.max(10, points.length * 3)),
-      this.activeStroke.radius,
-      8,
-      false,
-    );
-    this.activeStroke.mesh.geometry.dispose();
-    this.activeStroke.mesh.geometry = geometry;
-    this.activeStroke.mesh.position.set(0, 0, 0);
+    this.rebuildStroke(this.activeStroke);
+  }
+
+  eraseAt(point: THREE.Vector3, radius: number) {
+    this.endStroke();
+    let erased = false;
+
+    for (const stroke of [...this.strokes]) {
+      const eraserRadius = radius + stroke.radius * 0.7;
+      const runs = splitStrokeOutsideEraser(
+        stroke.points,
+        point,
+        eraserRadius,
+      );
+      const survivingPointCount = runs.reduce(
+        (total, run) => total + run.length,
+        0,
+      );
+      if (survivingPointCount === stroke.points.length) continue;
+
+      erased = true;
+      this.strokes = this.strokes.filter((candidate) => candidate !== stroke);
+      this.removeStroke(stroke);
+
+      for (const survivingPoints of runs) {
+        const survivingStroke = this.createStroke(
+          survivingPoints,
+          stroke.color,
+          stroke.radius,
+        );
+        this.strokes.push(survivingStroke);
+      }
+    }
+
+    return erased;
   }
 
   endStroke() {
@@ -133,17 +232,13 @@ export class AirScene {
     this.endStroke();
     const stroke = this.strokes.pop();
     if (!stroke) return;
-    stroke.mesh.geometry.dispose();
-    (stroke.mesh.material as THREE.Material).dispose();
-    this.artwork.remove(stroke.mesh);
+    this.removeStroke(stroke);
   }
 
   clear() {
     this.endStroke();
     for (const stroke of this.strokes) {
-      stroke.mesh.geometry.dispose();
-      (stroke.mesh.material as THREE.Material).dispose();
-      this.artwork.remove(stroke.mesh);
+      this.removeStroke(stroke);
     }
     this.strokes = [];
     this.artwork.position.set(0, 0, 0);
