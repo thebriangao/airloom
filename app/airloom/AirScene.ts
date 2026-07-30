@@ -21,16 +21,19 @@ export function projectNormalizedPointToArtwork(
     camera,
   );
 
-  const inverseArtworkMatrix = artwork.matrixWorld.clone().invert();
-  const origin = raycaster.ray.origin.clone().applyMatrix4(inverseArtworkMatrix);
-  const direction = raycaster.ray.direction
+  const targetWorldZ =
+    artwork.getWorldPosition(new THREE.Vector3()).z +
+    THREE.MathUtils.clamp(depth, -2.15, 2.15);
+  if (Math.abs(raycaster.ray.direction.z) < 0.0001) return undefined;
+  const distanceToDepth =
+    (targetWorldZ - raycaster.ray.origin.z) / raycaster.ray.direction.z;
+  if (distanceToDepth < 0) return undefined;
+
+  const worldPoint = raycaster.ray.origin
     .clone()
-    .transformDirection(inverseArtworkMatrix);
-  const targetZ = THREE.MathUtils.clamp(depth, -2.15, 2.15);
-  if (Math.abs(direction.z) < 0.0001) return undefined;
-  const distanceToPlane = (targetZ - origin.z) / direction.z;
-  if (distanceToPlane < 0) return undefined;
-  return origin.add(direction.multiplyScalar(distanceToPlane));
+    .add(raycaster.ray.direction.clone().multiplyScalar(distanceToDepth));
+  const inverseArtworkMatrix = artwork.matrixWorld.clone().invert();
+  return worldPoint.applyMatrix4(inverseArtworkMatrix);
 }
 
 export function splitStrokeOutsideEraser(

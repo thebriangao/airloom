@@ -15,6 +15,7 @@ import {
   AIRLOOM_COLORS,
   eraserRadiusFromThickness,
   radiusFromThickness,
+  type GestureResult,
   type HandPose,
   type Landmark,
 } from "./types";
@@ -47,6 +48,29 @@ const clamp = (value: number, minimum = 0, maximum = 1) =>
   Math.max(minimum, Math.min(maximum, value));
 
 const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
+
+type DepthCalibration = {
+  handScale: number;
+  fingerOffset: number;
+  filteredDepth: number;
+};
+
+const fingerDepthOffset = (result: GestureResult) =>
+  (result.indexTip.z - result.palm.z) / Math.max(0.025, result.handScale);
+
+const brushDepth = (
+  result: GestureResult,
+  calibration: DepthCalibration,
+) => {
+  const palmDepth =
+    Math.log(
+      Math.max(0.025, result.handScale) /
+        Math.max(0.025, calibration.handScale),
+    ) * 4.6;
+  const fingertipDepth =
+    (calibration.fingerOffset - fingerDepthOffset(result)) * 1.65;
+  return clamp(palmDepth + fingertipDepth, -2.15, 2.15);
+};
 
 const palmCenter = (landmarks: Landmark[]) => {
   const indices = [0, 5, 9, 13, 17];
@@ -88,7 +112,7 @@ export function AirloomStudio() {
     y: number;
     scale: number;
   } | null>(null);
-  const depthBaselineRef = useRef<number | null>(null);
+  const depthCalibrationRef = useRef<DepthCalibration | null>(null);
   const menuOpenRef = useRef(false);
   const colorIndexRef = useRef(0);
   const thicknessRef = useRef(0.32);
@@ -418,14 +442,22 @@ export function AirloomStudio() {
       const previous = previousControlRef.current;
       if (result.pose === "draw") {
         if (previous?.pose !== "draw") {
-          depthBaselineRef.current = result.handScale;
           sceneRef.current?.endStroke();
         }
-        const baseline = depthBaselineRef.current ?? result.handScale;
-        const depth = (result.handScale - baseline) * 19;
+        if (!depthCalibrationRef.current) {
+          depthCalibrationRef.current = {
+            handScale: result.handScale,
+            fingerOffset: fingerDepthOffset(result),
+            filteredDepth: 0,
+          };
+        }
+        const calibration = depthCalibrationRef.current;
+        const trackedDepth = brushDepth(result, calibration);
+        calibration.filteredDepth +=
+          (trackedDepth - calibration.filteredDepth) * 0.3;
         const point = sceneRef.current?.normalizedToArtwork(
           result.indexTip,
-          depth,
+          calibration.filteredDepth,
         );
         if (point) {
           applyToolAtPoint(point);
@@ -503,6 +535,7 @@ export function AirloomStudio() {
     gestureEngineRef.current.reset();
     clapContactRef.current = false;
     previousControlRef.current = null;
+    depthCalibrationRef.current = null;
     if (cursorRef.current) cursorRef.current.style.opacity = "0";
   }, []);
 
@@ -993,7 +1026,14 @@ export function AirloomStudio() {
         <nav className="minimal-tools" aria-label="Artwork controls">
           <button onClick={() => sceneRef.current?.undo()}>Undo</button>
           <button onClick={() => sceneRef.current?.resetView()}>Reset view</button>
-          <button onClick={() => sceneRef.current?.clear()}>Clear</button>
+          <button
+            onClick={() => {
+              sceneRef.current?.clear();
+              depthCalibrationRef.current = null;
+            }}
+          >
+            Clear
+          </button>
           <button
             className={eraserEnabled ? "is-active" : ""}
             onClick={toggleEraser}
@@ -1037,7 +1077,7 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "One finger draws · Two pan · Three orbit · Audible snap opens tools · Clap toggles eraser"
+            ? "One finger draws · Move toward or away for depth · Two pan · Three orbit · Snap opens tools"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera and microphone above"}
