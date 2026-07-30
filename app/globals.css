@@ -153,60 +153,60 @@ button {
   background: #fff;
 }
 
-.finger-cursor {
+.depth-key {
   position: absolute;
-  z-index: 6;
-  border: 2px solid currentColor;
-  border-radius: 50%;
-  opacity: 0;
+  z-index: 8;
+  top: 72px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: 8px auto;
+  align-items: center;
+  column-gap: 7px;
+  padding: 7px 11px;
+  border: 1px solid #d9d9d4;
+  border-radius: 11px;
+  background: rgba(251, 251, 248, 0.82);
+  color: #111;
   pointer-events: none;
-  transform: translate(-50%, -50%);
-  transition:
-    width 120ms ease,
-    height 120ms ease,
-    opacity 80ms ease,
-    transform 100ms ease,
-    background 100ms ease;
-  box-shadow:
-    0 0 0 4px rgba(255, 255, 255, 0.82),
-    0 4px 14px rgba(0, 0, 0, 0.18);
+  transform: translateX(-50%);
+  backdrop-filter: blur(12px);
 }
 
-.finger-cursor::after {
-  position: absolute;
-  inset: 35%;
+.depth-key-swatch {
+  grid-row: 1 / span 2;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: currentColor;
-  content: "";
+  background: #111;
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.09);
 }
 
-.finger-cursor.is-hovering {
-  background: rgba(251, 251, 248, 0.72);
+.depth-key strong,
+.depth-key small {
+  font-family: var(--font-geist-mono), monospace;
+  line-height: 1;
 }
 
-.finger-cursor.is-drawing {
-  background: color-mix(in srgb, currentColor 18%, transparent);
-  transform: translate(-50%, -50%) scale(0.78);
-  box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.9),
-    0 0 0 7px color-mix(in srgb, currentColor 18%, transparent),
-    0 4px 14px rgba(0, 0, 0, 0.18);
+.depth-key strong {
+  font-size: 8px;
+  letter-spacing: 0.1em;
 }
 
-.finger-cursor.is-drawing::after {
-  inset: 26%;
+.depth-key small {
+  margin-top: 2px;
+  color: #85857f;
+  font-size: 6px;
+  letter-spacing: 0.08em;
 }
 
-.finger-cursor.is-eraser {
-  border-style: dashed;
-  background: rgba(251, 251, 248, 0.72);
-  box-shadow:
-    0 0 0 3px rgba(17, 17, 17, 0.1),
-    0 4px 14px rgba(0, 0, 0, 0.14);
+.depth-key.is-front .depth-key-swatch {
+  background: #ff5a5f;
+  box-shadow: 0 0 0 3px rgba(255, 90, 95, 0.14);
 }
 
-.finger-cursor.is-eraser::after {
-  inset: 43%;
+.depth-key.is-back .depth-key-swatch {
+  background: #2864dc;
+  box-shadow: 0 0 0 3px rgba(40, 100, 220, 0.14);
 }
 
 .camera-bubble {
@@ -970,6 +970,12 @@ button {
 
   .gesture-pill {
     top: 78px;
+    left: 20px;
+    transform: none;
+  }
+
+  .depth-key {
+    top: 120px;
     left: 20px;
     transform: none;
   }

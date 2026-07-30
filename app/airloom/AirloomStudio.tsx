@@ -38,6 +38,7 @@ type SoundKind =
   | "size"
   | "eraserOn"
   | "eraserOff";
+type DepthZone = "front" | "plane" | "back";
 
 const POSE_LABELS: Record<HandPose, string> = {
   none: "Show your hand",
@@ -95,7 +96,6 @@ export function AirloomStudio() {
   const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const cursorRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -133,6 +133,7 @@ export function AirloomStudio() {
   const thicknessRef = useRef(0.32);
   const eraserThicknessRef = useRef(0.42);
   const eraserEnabledRef = useRef(false);
+  const depthZoneRef = useRef<DepthZone>("plane");
   const lastSizeTickRef = useRef(4);
   const pointerDrawingRef = useRef(false);
 
@@ -146,6 +147,7 @@ export function AirloomStudio() {
   const [eraserEnabled, setEraserEnabled] = useState(false);
   const [demoMode, setDemoMode] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [depthZone, setDepthZone] = useState<DepthZone>("plane");
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
@@ -266,6 +268,7 @@ export function AirloomStudio() {
     menuOpenRef.current = next;
     setMenuOpen(next);
     sceneRef.current?.endStroke();
+    sceneRef.current?.hideBrushCursor();
     previousControlRef.current = null;
     playSound(next ? "open" : "close");
   }, [playSound]);
@@ -328,6 +331,14 @@ export function AirloomStudio() {
     if (gestureRef.current === next) return;
     gestureRef.current = next;
     setGesture(next);
+  }, []);
+
+  const updateDepthZone = useCallback((depth: number) => {
+    const next: DepthZone =
+      depth > 0.065 ? "front" : depth < -0.065 ? "back" : "plane";
+    if (depthZoneRef.current === next) return;
+    depthZoneRef.current = next;
+    setDepthZone(next);
   }, []);
 
   useEffect(() => {
@@ -448,7 +459,17 @@ export function AirloomStudio() {
 
   const processHands = useCallback(
     (hands: Landmark[][], timestamp: number) => {
-      if (detectClap(hands, timestamp)) return;
+      if (detectClap(hands, timestamp)) {
+        sceneRef.current?.endStroke();
+        sceneRef.current?.hideBrushCursor();
+        return;
+      }
+      if (hands.length !== 1) {
+        sceneRef.current?.endStroke();
+        sceneRef.current?.hideBrushCursor();
+        previousControlRef.current = null;
+        return;
+      }
       const landmarks = hands[0];
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
@@ -464,12 +485,6 @@ export function AirloomStudio() {
       }
       const filteredTip = filteredTipRef.current;
 
-      if (cursorRef.current) {
-        cursorRef.current.style.opacity = "1";
-        cursorRef.current.style.left = `${(1 - filteredTip.x) * 100}%`;
-        cursorRef.current.style.top = `${filteredTip.y * 100}%`;
-      }
-
       if (
         hands.length === 1 &&
         (result.snapPose || result.snap)
@@ -483,6 +498,7 @@ export function AirloomStudio() {
 
       if (menuOpenRef.current) {
         sceneRef.current?.endStroke();
+        sceneRef.current?.hideBrushCursor();
         previousControlRef.current = null;
 
         if (result.pose === "fist" && !eraserEnabledRef.current) {
@@ -523,7 +539,12 @@ export function AirloomStudio() {
               y: result.palm.y,
               scale: result.handScale,
             };
-      if (controlPose === "draw") {
+
+      const brushPose =
+        controlPose !== "pan2d" &&
+        controlPose !== "orbit3d" &&
+        controlPose !== "fist";
+      if (brushPose) {
         if (previous?.pose !== "draw") {
           sceneRef.current?.endStroke();
         }
@@ -543,10 +564,35 @@ export function AirloomStudio() {
           calibration.filteredDepth,
         );
         if (point) {
-          applyToolAtPoint(point);
+          const radius = eraserEnabledRef.current
+            ? eraserRadiusFromThickness(eraserThicknessRef.current)
+            : radiusFromThickness(thicknessRef.current);
+          sceneRef.current?.setBrushCursor(
+            point,
+            radius,
+            AIRLOOM_COLORS[colorIndexRef.current].value,
+            eraserEnabledRef.current,
+            controlPose === "draw",
+            calibration.filteredDepth,
+          );
+          updateDepthZone(calibration.filteredDepth);
+          if (controlPose === "draw") {
+            applyToolAtPoint(point);
+          } else {
+            sceneRef.current?.endStroke();
+          }
+        } else {
+          sceneRef.current?.endStroke();
+          sceneRef.current?.hideBrushCursor();
         }
       } else {
         sceneRef.current?.endStroke();
+        sceneRef.current?.hideBrushCursor();
+        depthCalibrationRef.current = null;
+        if (depthZoneRef.current !== "plane") {
+          depthZoneRef.current = "plane";
+          setDepthZone("plane");
+        }
       }
 
       if (previous?.pose === controlPose && controlPose === "pan2d") {
@@ -572,6 +618,7 @@ export function AirloomStudio() {
       selectColor,
       selectEraserThickness,
       selectThickness,
+      updateDepthZone,
       updateGesture,
     ],
   );
@@ -618,7 +665,9 @@ export function AirloomStudio() {
     filteredTipRef.current = null;
     depthCalibrationRef.current = null;
     lastHandsSeenAtRef.current = -Infinity;
-    if (cursorRef.current) cursorRef.current.style.opacity = "0";
+    sceneRef.current?.hideBrushCursor();
+    depthZoneRef.current = "plane";
+    setDepthZone("plane");
   }, []);
 
   useEffect(() => stopCamera, [stopCamera]);
@@ -649,8 +698,11 @@ export function AirloomStudio() {
           sceneRef.current?.endStroke();
           previousControlRef.current = null;
           filteredTipRef.current = null;
+          depthCalibrationRef.current = null;
+          sceneRef.current?.hideBrushCursor();
+          depthZoneRef.current = "plane";
+          setDepthZone("plane");
           updateGesture("none");
-          if (cursorRef.current) cursorRef.current.style.opacity = "0";
         }
       }
       sampleMicrophone(timestamp);
@@ -854,19 +906,6 @@ export function AirloomStudio() {
         onPointerCancel={handleCanvasPointerUp}
       >
         <canvas ref={canvasRef} className="air-canvas" />
-        <div
-          ref={cursorRef}
-          className={`finger-cursor ${eraserEnabled ? "is-eraser" : ""} ${gesture === "draw" ? "is-drawing" : "is-hovering"}`}
-          style={{
-            color: eraserEnabled ? "#111111" : selectedColor.value,
-            width: eraserEnabled
-              ? `${28 + eraserThickness * 54}px`
-              : `${16 + thickness * 24}px`,
-            height: eraserEnabled
-              ? `${28 + eraserThickness * 54}px`
-              : `${16 + thickness * 24}px`,
-          }}
-        />
 
         <header className="floating-brand">
           <span className="brand-dot" />
@@ -890,6 +929,20 @@ export function AirloomStudio() {
                   ? `Eraser · ${POSE_LABELS[gesture]}`
                   : POSE_LABELS[gesture]}
         </div>
+
+        {cameraState === "active" && (
+          <div className={`depth-key is-${depthZone}`} aria-live="polite">
+            <span className="depth-key-swatch" />
+            <strong>{depthZone.toUpperCase()}</strong>
+            <small>
+              {depthZone === "front"
+                ? "CORAL · IN FRONT"
+                : depthZone === "back"
+                  ? "BLUE · BEHIND"
+                  : "BLACK · ON PLANE"}
+            </small>
+          </div>
+        )}
 
         <aside
           className="camera-bubble"
@@ -1164,7 +1217,7 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "Pinch to draw · Release to stop · Two pan · Three orbit · Move hand in or out to zoom"
+            ? "Match the 3D cursor to an edge · Coral is front · Blue is behind · Pinch to draw"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera and microphone above"}

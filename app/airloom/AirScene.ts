@@ -99,6 +99,56 @@ export class AirScene {
   private artwork = new THREE.Group();
   private targetPosition = new THREE.Vector3();
   private targetRotation = new THREE.Vector2();
+  private cursorCoreMaterial = new THREE.MeshStandardMaterial({
+    color: "#111111",
+    emissive: "#111111",
+    emissiveIntensity: 0.4,
+    roughness: 0.3,
+    metalness: 0.04,
+    transparent: true,
+  });
+  private cursorDepthMaterial = new THREE.MeshBasicMaterial({
+    color: "#111111",
+    wireframe: true,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+  });
+  private cursorAnchorMaterial = new THREE.MeshBasicMaterial({
+    color: "#111111",
+    wireframe: true,
+    transparent: true,
+    opacity: 0.28,
+    depthTest: false,
+  });
+  private cursorLineMaterial = new THREE.LineDashedMaterial({
+    color: "#111111",
+    transparent: true,
+    opacity: 0.7,
+    dashSize: 0.08,
+    gapSize: 0.05,
+    depthTest: false,
+  });
+  private cursorGroup = new THREE.Group();
+  private cursorCore = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 16, 14),
+    this.cursorCoreMaterial,
+  );
+  private cursorDepthHalo = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 14, 12),
+    this.cursorDepthMaterial,
+  );
+  private cursorAnchor = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 12, 10),
+    this.cursorAnchorMaterial,
+  );
+  private cursorLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(),
+      new THREE.Vector3(),
+    ]),
+    this.cursorLineMaterial,
+  );
   private strokes: Stroke[] = [];
   private activeStroke?: Stroke;
   private previousEraserPoint?: THREE.Vector3;
@@ -122,6 +172,18 @@ export class AirScene {
     key.position.set(4, 5, 7);
     const rim = new THREE.PointLight("#d9d9d9", 18, 18);
     rim.position.set(-4, -2, 4);
+    this.cursorGroup.add(this.cursorCore, this.cursorDepthHalo);
+    this.cursorGroup.visible = false;
+    this.cursorAnchor.visible = false;
+    this.cursorLine.visible = false;
+    this.cursorDepthHalo.renderOrder = 20;
+    this.cursorAnchor.renderOrder = 19;
+    this.cursorLine.renderOrder = 18;
+    this.artwork.add(
+      this.cursorGroup,
+      this.cursorAnchor,
+      this.cursorLine,
+    );
     this.scene.add(ambient, key, rim, this.artwork);
 
     const loop = () => {
@@ -159,6 +221,77 @@ export class AirScene {
       point,
       depth,
     );
+  }
+
+  setBrushCursor(
+    point: THREE.Vector3,
+    radius: number,
+    color: string,
+    eraser: boolean,
+    active: boolean,
+    depth: number,
+  ) {
+    if (!point.toArray().every(Number.isFinite)) {
+      this.hideBrushCursor();
+      return;
+    }
+
+    const safeRadius = THREE.MathUtils.clamp(radius, 0.001, 0.72);
+    const depthColor =
+      depth > 0.065
+        ? "#ff5a5f"
+        : depth < -0.065
+          ? "#2864dc"
+          : "#111111";
+
+    this.cursorGroup.visible = true;
+    this.cursorGroup.position.copy(point);
+    this.cursorCore.scale.setScalar(safeRadius);
+    this.cursorDepthHalo.scale.setScalar(
+      safeRadius * (active ? 1.42 : 1.24),
+    );
+    this.cursorCoreMaterial.color.set(eraser ? "#fbfbf8" : color);
+    this.cursorCoreMaterial.emissive.set(eraser ? "#777777" : color);
+    this.cursorCoreMaterial.opacity = eraser ? 0.3 : 0.88;
+    this.cursorCoreMaterial.wireframe = eraser;
+    this.cursorDepthMaterial.color.set(depthColor);
+    this.cursorDepthMaterial.opacity = active ? 1 : 0.76;
+
+    this.artwork.updateMatrixWorld(true);
+    const worldPoint = point.clone().applyMatrix4(this.artwork.matrixWorld);
+    const artworkOrigin = this.artwork.getWorldPosition(new THREE.Vector3());
+    const worldAnchor = new THREE.Vector3(
+      worldPoint.x,
+      worldPoint.y,
+      artworkOrigin.z,
+    );
+    const localAnchor = worldAnchor.applyMatrix4(
+      this.artwork.matrixWorld.clone().invert(),
+    );
+    const showDepthGuide = Math.abs(depth) > 0.045;
+
+    this.cursorAnchor.visible = showDepthGuide;
+    this.cursorLine.visible = showDepthGuide;
+    if (!showDepthGuide) return;
+
+    this.cursorAnchor.position.copy(localAnchor);
+    this.cursorAnchor.scale.setScalar(safeRadius * 0.82);
+    this.cursorAnchorMaterial.color.set(depthColor);
+    this.cursorLineMaterial.color.set(depthColor);
+    const positions = this.cursorLine.geometry.getAttribute(
+      "position",
+    ) as THREE.BufferAttribute;
+    positions.setXYZ(0, point.x, point.y, point.z);
+    positions.setXYZ(1, localAnchor.x, localAnchor.y, localAnchor.z);
+    positions.needsUpdate = true;
+    this.cursorLine.geometry.computeBoundingSphere();
+    this.cursorLine.computeLineDistances();
+  }
+
+  hideBrushCursor() {
+    this.cursorGroup.visible = false;
+    this.cursorAnchor.visible = false;
+    this.cursorLine.visible = false;
   }
 
   private geometryForPoints(points: THREE.Vector3[], radius: number) {
@@ -362,13 +495,28 @@ export class AirScene {
   }
 
   getCanvas() {
+    const cursorVisible = this.cursorGroup.visible;
+    const anchorVisible = this.cursorAnchor.visible;
+    const lineVisible = this.cursorLine.visible;
+    this.hideBrushCursor();
     this.renderer.render(this.scene, this.camera);
+    this.cursorGroup.visible = cursorVisible;
+    this.cursorAnchor.visible = anchorVisible;
+    this.cursorLine.visible = lineVisible;
     return this.renderer.domElement;
   }
 
   dispose() {
     window.cancelAnimationFrame(this.frame);
     this.clear();
+    this.cursorCore.geometry.dispose();
+    this.cursorDepthHalo.geometry.dispose();
+    this.cursorAnchor.geometry.dispose();
+    this.cursorLine.geometry.dispose();
+    this.cursorCoreMaterial.dispose();
+    this.cursorDepthMaterial.dispose();
+    this.cursorAnchorMaterial.dispose();
+    this.cursorLineMaterial.dispose();
     this.renderer.dispose();
   }
 }
