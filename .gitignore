@@ -1,43 +1,68 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
+# Dependencies
+/node_modules/
+/.pnp/
 .pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+/.yarn/
 
-# testing
-/coverage
-
-# next.js
+# Generated builds and caches
 /.next/
 /.vinext/
+/dist/
 /out/
+/.cache/
+/.turbo/
+/.wrangler/
+/coverage/
+*.tsbuildinfo
+next-env.d.ts
 
-# misc
-.DS_Store
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
 *.pem
 
-# debug
+# OpenAI, ChatGPT, Codex, and hosted-site metadata
+/.openai/
+**/.openai/
+**/*openai*
+**/*chatgpt*
+**/*codex*
+
+# Tests, examples, generated outputs, and scratch work
+/tests/
+/test/
+/__tests__/
+/examples/
+/outputs/
+/work/
+/tmp/
+*.test.*
+*.spec.*
+
+# Project documentation except the root README
+*.md
+!/README.md
+
+# Operating-system and editor files
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/
+*.swp
+
+# Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-next-env.d.ts
-*.tsbuildinfo
-/dist/
-/.wrangler/
-/outputs/
-/work/
+# Retired scaffolding that is not part of the localhost app
+/build/
+/db/
+/drizzle/
+/worker/
+/public/*
+!/public/favicon.svg
+!/public/og.png

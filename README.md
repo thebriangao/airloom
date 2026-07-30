@@ -24,8 +24,9 @@ Requires Node.js `>=22.13.0`.
 ```bash
 npm install
 npm run dev
-npm test
 ```
+
+Open `http://localhost:3000`.
 
 The camera and microphone require HTTPS in production or localhost during
 development. Hand-tracking inference and transient sound confirmation run
