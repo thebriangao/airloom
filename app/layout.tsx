@@ -34,11 +34,14 @@ export async function generateMetadata(): Promise<Metadata> {
     baseUrl = new URL("http://localhost:3001");
   }
 
-  const socialImage = new URL("/og-v2.png", baseUrl).toString();
+  const socialImage = new URL("/og.png", baseUrl).toString();
   return {
     metadataBase: baseUrl,
     title,
     description,
+    icons: {
+      icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    },
     openGraph: {
       title,
       description,

@@ -161,5 +161,6 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.match(styles, /\.cartridge-tab \{[\s\S]*?right: 6px;/);
   assert.match(styles, /\.brush-cartridge-shell\.is-eraser/);
   assert.doesNotMatch(styles, /0 34px 54px/);
-  await access(new URL("../public/og-v2.png", import.meta.url));
+  await access(new URL("../public/og.png", import.meta.url));
+  await access(new URL("../public/favicon.svg", import.meta.url));
 });
