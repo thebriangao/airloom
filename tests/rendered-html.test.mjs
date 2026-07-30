@@ -54,6 +54,11 @@ test("camera access is requested before loading hand tracking", async () => {
   assert.notEqual(trackingImport, -1);
   assert.ok(cameraRequest < trackingImport);
   assert.match(source, /if \(!context\) return;/);
+  assert.match(source, /if \(event\.target !== event\.currentTarget\) return;/);
+  assert.match(
+    source,
+    /className="camera-bubble"\s+onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/,
+  );
 });
 
 test("keeps tracking, gestures, and rendering in separate modules", async () => {

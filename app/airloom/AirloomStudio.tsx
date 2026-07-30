@@ -444,6 +444,9 @@ export function AirloomStudio() {
     event: ReactPointerEvent<HTMLDivElement>,
   ) => {
     if (!demoMode || menuOpenRef.current) return;
+    // The stage owns mouse drawing, but its floating controls are children.
+    // Never capture a press that began on a button or another overlay.
+    if (event.target !== event.currentTarget) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerDrawingRef.current = true;
     const pointer = pointerPosition(event);
@@ -598,7 +601,10 @@ export function AirloomStudio() {
                 : POSE_LABELS[gesture]}
         </div>
 
-        <aside className="camera-bubble">
+        <aside
+          className="camera-bubble"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <div className="camera-bubble-depth" />
           <div className="camera-window">
             <video
