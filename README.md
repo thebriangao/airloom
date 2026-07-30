@@ -1,0 +1,30 @@
+# Airloom
+
+Airloom is a browser-based 3D painting instrument controlled by hand gestures.
+One finger draws, two fingers pan, three fingers orbit, and a finger snap opens
+the brush menu.
+
+## Interaction map
+
+- One raised finger: draw a 3D stroke
+- Two raised fingers: pan the artwork in 2D
+- Three raised fingers: orbit and zoom the artwork
+- Finger snap: open or close the brush menu
+- Fist in the menu: move left or right to select one of eight colors
+- Open palm in the menu: move left or right to select one of five stroke sizes
+
+Mouse, keyboard, and visible-button fallbacks are included.
+
+## Development
+
+Requires Node.js `>=22.13.0`.
+
+```bash
+npm install
+npm run dev
+npm test
+```
+
+The camera requires HTTPS in production or localhost during development.
+Hand-tracking inference runs locally in the browser using MediaPipe. Three.js
+builds and renders the luminous 3D stroke geometry.
