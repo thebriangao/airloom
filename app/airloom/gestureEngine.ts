@@ -7,7 +7,7 @@ import type {
 
 const HOLD_MS = 115;
 const SNAP_COOLDOWN_MS = 900;
-const SNAP_WINDOW_MS = 360;
+const SNAP_WINDOW_MS = 650;
 
 function distance(a: Landmark, b: Landmark) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -61,6 +61,15 @@ function fingerExtended(
   );
 }
 
+export function countExtendedFingers(landmarks: Landmark[]) {
+  return [
+    fingerExtended(landmarks, 5, 6, 8),
+    fingerExtended(landmarks, 9, 10, 12),
+    fingerExtended(landmarks, 13, 14, 16),
+    fingerExtended(landmarks, 17, 18, 20),
+  ].filter(Boolean).length;
+}
+
 function classifyPose(landmarks: Landmark[]) {
   const fingers = [
     fingerExtended(landmarks, 5, 6, 8),
@@ -106,19 +115,26 @@ export class GestureEngine {
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];
 
-    if (thumbMiddleRatio < 0.48) {
+    if (thumbMiddleRatio < 0.72) {
       this.snapArmedAt = timestamp;
     }
 
     const middleDrop = this.previousMiddleTip
       ? (middleTip.y - this.previousMiddleTip.y) / palmSpan
       : 0;
-    const snap =
+    const middlePalmRatio = distance(middleTip, landmarks[9]) / palmSpan;
+    const recentlyArmed =
       this.snapArmedAt > 0 &&
-      timestamp - this.snapArmedAt < SNAP_WINDOW_MS &&
-      thumbMiddleRatio > 0.82 &&
-      middleDrop > 0.055 &&
+      timestamp - this.snapArmedAt < SNAP_WINDOW_MS;
+    const snap =
+      recentlyArmed &&
+      thumbMiddleRatio > 0.76 &&
+      (middleDrop > 0.018 || middlePalmRatio < 1.08) &&
       timestamp - this.lastSnapAt > SNAP_COOLDOWN_MS;
+    const snapPose =
+      thumbMiddleRatio < 0.8 ||
+      (recentlyArmed &&
+        (thumbMiddleRatio < 1.4 || middlePalmRatio < 1.18));
 
     if (snap) {
       this.lastSnapAt = timestamp;
@@ -130,6 +146,7 @@ export class GestureEngine {
     return {
       pose: this.stable,
       snap,
+      snapPose,
       fingerCount,
       palm: midpoint([
         landmarks[0],

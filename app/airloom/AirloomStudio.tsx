@@ -10,7 +10,11 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { AirScene } from "./AirScene";
-import { GestureEngine } from "./gestureEngine";
+import { SuddenSoundDetector } from "./audioGesture";
+import {
+  countExtendedFingers,
+  GestureEngine,
+} from "./gestureEngine";
 import {
   AIRLOOM_COLORS,
   eraserRadiusFromThickness,
@@ -95,13 +99,18 @@ export function AirloomStudio() {
   const microphoneSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const microphoneAnalyserRef = useRef<AnalyserNode | null>(null);
   const microphoneSamplesRef = useRef(new Float32Array(1024));
-  const microphoneBaselineRef = useRef(0.008);
+  const suddenSoundDetectorRef = useRef(new SuddenSoundDetector());
   const lastAudioTransientRef = useRef(-Infinity);
   const lastVisualSnapRef = useRef(-Infinity);
   const lastConfirmedSnapRef = useRef(-Infinity);
   const lastVisualClapRef = useRef(-Infinity);
   const lastConfirmedClapRef = useRef(-Infinity);
   const clapContactRef = useRef(false);
+  const clapMotionRef = useRef<{
+    separation: number;
+    timestamp: number;
+    approachAt: number;
+  } | null>(null);
   const animationRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
   const gestureEngineRef = useRef(new GestureEngine());
@@ -258,12 +267,15 @@ export function AirloomStudio() {
   const confirmSnap = useCallback(
     (timestamp: number) => {
       const paired =
-        Math.abs(timestamp - lastAudioTransientRef.current) <= 320 &&
-        Math.abs(timestamp - lastVisualSnapRef.current) <= 320;
+        Math.abs(timestamp - lastAudioTransientRef.current) <= 560 &&
+        Math.abs(timestamp - lastVisualSnapRef.current) <= 560;
       const cooledDown = timestamp - lastConfirmedSnapRef.current > 950;
-      const clapIsNotWinning = timestamp - lastConfirmedClapRef.current > 500;
+      const clapIsNotWinning =
+        Math.abs(timestamp - lastVisualClapRef.current) > 650 &&
+        timestamp - lastConfirmedClapRef.current > 650;
       if (!paired || !cooledDown || !clapIsNotWinning) return false;
       lastConfirmedSnapRef.current = timestamp;
+      lastAudioTransientRef.current = -Infinity;
       lastVisualSnapRef.current = -Infinity;
       toggleMenu();
       return true;
@@ -274,12 +286,14 @@ export function AirloomStudio() {
   const confirmClap = useCallback(
     (timestamp: number) => {
       const paired =
-        Math.abs(timestamp - lastAudioTransientRef.current) <= 340 &&
-        Math.abs(timestamp - lastVisualClapRef.current) <= 340;
-      const cooledDown = timestamp - lastConfirmedClapRef.current > 1300;
+        Math.abs(timestamp - lastAudioTransientRef.current) <= 650 &&
+        Math.abs(timestamp - lastVisualClapRef.current) <= 650;
+      const cooledDown = timestamp - lastConfirmedClapRef.current > 1150;
       if (!paired || !cooledDown) return false;
       lastConfirmedClapRef.current = timestamp;
+      lastAudioTransientRef.current = -Infinity;
       lastVisualClapRef.current = -Infinity;
+      lastVisualSnapRef.current = -Infinity;
       toggleEraser();
       return true;
     },
@@ -292,24 +306,10 @@ export function AirloomStudio() {
       if (!analyser) return;
       const samples = microphoneSamplesRef.current;
       analyser.getFloatTimeDomainData(samples);
-
-      let peak = 0;
-      let squareSum = 0;
-      for (const sample of samples) {
-        const magnitude = Math.abs(sample);
-        peak = Math.max(peak, magnitude);
-        squareSum += sample * sample;
-      }
-      const rms = Math.sqrt(squareSum / samples.length);
-      const baseline = microphoneBaselineRef.current;
-      if (rms < baseline * 2.2) {
-        microphoneBaselineRef.current = baseline * 0.985 + rms * 0.015;
-      }
-
-      const transient =
-        peak > Math.max(0.09, baseline * 5.2) &&
-        rms > Math.max(0.018, baseline * 2.8) &&
-        timestamp - lastAudioTransientRef.current > 135;
+      const { transient } = suddenSoundDetectorRef.current.update(
+        samples,
+        timestamp,
+      );
       if (!transient) return;
 
       lastAudioTransientRef.current = timestamp;
@@ -373,8 +373,13 @@ export function AirloomStudio() {
   const detectClap = useCallback(
     (hands: Landmark[][], timestamp: number) => {
       if (hands.length < 2) {
-        clapContactRef.current = false;
-        return false;
+        const recentApproach =
+          clapMotionRef.current &&
+          timestamp - clapMotionRef.current.approachAt < 430;
+        if (!recentApproach || clapContactRef.current) return false;
+        clapContactRef.current = true;
+        lastVisualClapRef.current = timestamp;
+        return confirmClap(timestamp);
       }
 
       const firstPalm = palmCenter(hands[0]);
@@ -383,8 +388,50 @@ export function AirloomStudio() {
         firstPalm.x - secondPalm.x,
         firstPalm.y - secondPalm.y,
       );
-      if (separation > 0.27) clapContactRef.current = false;
-      if (separation >= 0.16 || clapContactRef.current) return false;
+      const firstSpan = Math.hypot(
+        hands[0][5].x - hands[0][17].x,
+        hands[0][5].y - hands[0][17].y,
+      );
+      const secondSpan = Math.hypot(
+        hands[1][5].x - hands[1][17].x,
+        hands[1][5].y - hands[1][17].y,
+      );
+      const averageSpan = Math.max(0.04, (firstSpan + secondSpan) / 2);
+      const contactDistance = clamp(averageSpan * 1.55, 0.15, 0.25);
+      const handsLookOpen =
+        countExtendedFingers(hands[0]) >= 2 &&
+        countExtendedFingers(hands[1]) >= 2;
+      const previousMotion = clapMotionRef.current;
+      const elapsed = previousMotion
+        ? Math.max(16, timestamp - previousMotion.timestamp)
+        : 16;
+      const closingRate = previousMotion
+        ? ((previousMotion.separation - separation) / elapsed) * 1000
+        : 0;
+      const approaching =
+        handsLookOpen && separation < 0.46 && closingRate > 0.2;
+      const approachAt = approaching
+        ? timestamp
+        : previousMotion?.approachAt ?? -Infinity;
+
+      clapMotionRef.current = {
+        separation,
+        timestamp,
+        approachAt,
+      };
+
+      if (separation > Math.max(0.34, contactDistance * 1.65)) {
+        clapContactRef.current = false;
+      }
+      const recentApproach = timestamp - approachAt < 520;
+      if (
+        !handsLookOpen ||
+        !recentApproach ||
+        separation > contactDistance ||
+        clapContactRef.current
+      ) {
+        return false;
+      }
 
       clapContactRef.current = true;
       lastVisualClapRef.current = timestamp;
@@ -406,10 +453,12 @@ export function AirloomStudio() {
         cursorRef.current.style.top = `${result.indexTip.y * 100}%`;
       }
 
-      if (result.snap) {
+      if (
+        hands.length === 1 &&
+        (result.snapPose || result.snap)
+      ) {
         lastVisualSnapRef.current = timestamp;
-        confirmSnap(timestamp);
-        return;
+        if (confirmSnap(timestamp)) return;
       }
 
       updateGesture(result.pose);
@@ -515,7 +564,7 @@ export function AirloomStudio() {
       source.connect(analyser);
       microphoneSourceRef.current = source;
       microphoneAnalyserRef.current = analyser;
-      microphoneBaselineRef.current = 0.008;
+      suddenSoundDetectorRef.current.reset();
       lastAudioTransientRef.current = -Infinity;
     },
     [primeAudio],
@@ -534,6 +583,8 @@ export function AirloomStudio() {
     handLandmarkerRef.current = null;
     gestureEngineRef.current.reset();
     clapContactRef.current = false;
+    clapMotionRef.current = null;
+    suddenSoundDetectorRef.current.reset();
     previousControlRef.current = null;
     depthCalibrationRef.current = null;
     if (cursorRef.current) cursorRef.current.style.opacity = "0";

@@ -22,6 +22,7 @@ export type HandPose =
 export type GestureResult = {
   pose: HandPose;
   snap: boolean;
+  snapPose: boolean;
   fingerCount: number;
   palm: Point3;
   handScale: number;
