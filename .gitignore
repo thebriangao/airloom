@@ -1,18 +1,9 @@
 # Dependencies
 /node_modules/
-/.pnp/
-.pnp.*
-/.yarn/
 
-# Generated builds and caches
+# Next.js and TypeScript output
 /.next/
-/.vinext/
-/dist/
 /out/
-/.cache/
-/.turbo/
-/.wrangler/
-/coverage/
 *.tsbuildinfo
 next-env.d.ts
 
@@ -20,49 +11,11 @@ next-env.d.ts
 .env
 .env.*
 !.env.example
-*.pem
-
-# OpenAI, ChatGPT, Codex, and hosted-site metadata
-/.openai/
-**/.openai/
-**/*openai*
-**/*chatgpt*
-**/*codex*
-
-# Tests, examples, generated outputs, and scratch work
-/tests/
-/test/
-/__tests__/
-/examples/
-/outputs/
-/work/
-/tmp/
-*.test.*
-*.spec.*
-
-# Project documentation except the root README
-*.md
-!/README.md
 
 # Operating-system and editor files
 .DS_Store
-Thumbs.db
-/.idea/
-/.vscode/
 *.swp
 
 # Logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# Retired scaffolding that is not part of the localhost app
-/build/
-/db/
-/drizzle/
-/worker/
-/public/*
-!/public/favicon.svg
-!/public/og.png
