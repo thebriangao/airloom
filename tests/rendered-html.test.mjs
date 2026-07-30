@@ -84,7 +84,10 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.match(studio, /menuOpenRef\.current/);
   assert.match(studio, /selectThickness/);
   assert.match(studio, /AudioContext/);
-  assert.match(studio, /dial-color-grid/);
+  assert.match(studio, /brush-cartridge/);
+  assert.match(studio, /cartridge-color-grid/);
+  assert.match(studio, /type="range"/);
+  assert.doesNotMatch(studio, /brush-dial|thickness-arc/);
   assert.match(gestures, /SNAP_COOLDOWN_MS/);
   assert.match(gestures, /fingerExtended/);
   assert.match(scene, /TubeGeometry/);

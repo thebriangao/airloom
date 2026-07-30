@@ -7,7 +7,7 @@ Airloom is a camera-first 3D painting studio controlled by one hand.
 - One raised finger draws a continuous 3D stroke.
 - Two raised fingers pan the complete artwork in the screen plane.
 - Three raised fingers orbit the complete artwork and use hand depth to zoom.
-- A finger snap opens or closes the brush menu.
+- A finger snap ejects or holsters the brush cartridge.
 - While the menu is open, a fist moved in two dimensions selects from a
   five-by-five color grid.
 - While the menu is open, an open palm moved left or right continuously adjusts
@@ -32,8 +32,8 @@ reliability fallbacks.
 ## Gesture precedence
 
 1. Snap is edge-triggered and has the highest priority.
-2. When the menu is open, drawing, panning, and orbiting are disabled.
-3. In the menu, fist position selects color in two dimensions and open-palm
+2. When the cartridge is open, drawing, panning, and orbiting are disabled.
+3. In the cartridge, fist position selects color in two dimensions and open-palm
    horizontal position controls a continuous thickness value.
 4. Outside the menu, one finger draws, two fingers pan, and three fingers orbit.
 5. An unrecognized pose or lost hand ends the active stroke.
@@ -48,5 +48,5 @@ reliability fallbacks.
 - Stroke points are filtered and distance-throttled before rebuilding geometry.
 - Visible controls and keyboard shortcuts remain available if a gesture is
   difficult to perform or detect.
-- A synthesized Web Audio cue confirms dial open, close, color, and thickness
+- A synthesized Web Audio cue confirms cartridge open, close, color, and thickness
   changes without requiring downloaded sound assets.

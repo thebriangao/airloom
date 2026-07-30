@@ -4,7 +4,6 @@ import type { HandLandmarker } from "@mediapipe/tasks-vision";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -47,7 +46,6 @@ export function AirloomStudio() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
-  const thicknessArcRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -68,7 +66,6 @@ export function AirloomStudio() {
   const thicknessRef = useRef(0.32);
   const lastSizeTickRef = useRef(4);
   const pointerDrawingRef = useRef(false);
-  const thicknessDraggingRef = useRef(false);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraError, setCameraError] = useState("");
@@ -80,10 +77,6 @@ export function AirloomStudio() {
   const [helpOpen, setHelpOpen] = useState(false);
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
-  const thicknessSegments = useMemo(
-    () => Array.from({ length: 49 }, (_, index) => index / 48),
-    [],
-  );
 
   const primeAudio = useCallback((): AudioContext | null => {
     try {
@@ -486,38 +479,6 @@ export function AirloomStudio() {
     sceneRef.current?.endStroke();
   };
 
-  const updateThicknessFromPointer = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    const rect = thicknessArcRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const x = event.clientX - (rect.left + rect.width / 2);
-    const y = event.clientY - (rect.top + rect.height / 2);
-    const angleFromTop = (Math.atan2(x, -y) * 180) / Math.PI;
-    selectThickness(clamp((angleFromTop + 135) / 270));
-  };
-
-  const handleThicknessDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    event.stopPropagation();
-    primeAudio();
-    thicknessDraggingRef.current = true;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    updateThicknessFromPointer(event);
-  };
-
-  const handleThicknessMove = (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => {
-    if (!thicknessDraggingRef.current) return;
-    updateThicknessFromPointer(event);
-  };
-
-  const handleThicknessUp = () => {
-    thicknessDraggingRef.current = false;
-  };
-
   const exportArtwork = async () => {
     const stage = stageRef.current;
     const sceneCanvas = sceneRef.current?.getCanvas();
@@ -552,13 +513,13 @@ export function AirloomStudio() {
     URL.revokeObjectURL(link.href);
   };
 
-  const markerAngle = -135 + thickness * 270;
   const cameraHasVideo =
     cameraState === "calibrating" || cameraState === "active";
-  const dialStyle = {
-    "--dial-color": selectedColor.value,
-    "--dial-lift": `${(0.5 - thickness) * 18}px`,
-    "--dial-scale": 0.985 + thickness * 0.035,
+  const cartridgeStyle = {
+    "--cartridge-color": selectedColor.value,
+    "--thickness-position": `${thickness * 100}%`,
+    "--marker-size": `${13 + thickness * 9}px`,
+    "--stroke-height": `${2 + thickness * 20}px`,
   } as CSSProperties;
 
   return (
@@ -661,67 +622,59 @@ export function AirloomStudio() {
         </aside>
 
         <aside
-          className={`brush-dial-shell ${menuOpen ? "is-open" : ""}`}
-          style={dialStyle}
+          className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""}`}
+          style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
         >
           <button
-            className="dial-trigger"
+            className="cartridge-tab"
             onClick={() => {
               primeAudio();
               toggleMenu();
             }}
             aria-expanded={menuOpen}
-            aria-label={menuOpen ? "Close brush dial" : "Open brush dial"}
+            aria-controls="brush-cartridge"
+            aria-label={
+              menuOpen ? "Close brush cartridge" : "Open brush cartridge"
+            }
           >
-            <span className="dial-trigger-core" />
-            <span className="dial-trigger-notch dial-trigger-notch-a" />
-            <span className="dial-trigger-notch dial-trigger-notch-b" />
-            <small>{menuOpen ? "SNAP" : "BRUSH"}</small>
+            <span className="cartridge-tab-light" />
+            <span className="cartridge-tab-grip">
+              <i />
+              <i />
+              <i />
+            </span>
+            <small>BRUSH</small>
           </button>
 
-          {menuOpen && (
-            <div className="brush-dial">
-              <div className="dial-bevel dial-bevel-outer" />
-              <div className="dial-bevel dial-bevel-inner" />
-              <div
-                ref={thicknessArcRef}
-                className="thickness-arc"
-                onPointerDown={handleThicknessDown}
-                onPointerMove={handleThicknessMove}
-                onPointerUp={handleThicknessUp}
-                onPointerCancel={handleThicknessUp}
-                aria-label="Continuous stroke thickness control"
-              >
-                {thicknessSegments.map((progress) => {
-                  const angle = -135 + progress * 270;
-                  return (
-                    <i
-                      key={progress}
-                      className={progress <= thickness ? "is-filled" : ""}
-                      style={{
-                        height: `${2.5 + progress * 11}px`,
-                        transform: `translate(-50%, -50%) rotate(${angle}deg) translateY(-139px)`,
-                      }}
-                    />
-                  );
-                })}
-                <span
-                  className="thickness-marker"
-                  style={{
-                    transform: `translate(-50%, -50%) rotate(${markerAngle}deg) translateY(-139px)`,
-                  }}
-                >
-                  <b />
-                </span>
+          <div
+            id="brush-cartridge"
+            className="brush-cartridge"
+            aria-hidden={!menuOpen}
+          >
+            <div className="cartridge-backplate" />
+            <header className="cartridge-header">
+              <div>
+                <span>AIRLOOM TOOL</span>
+                <strong>BRUSH CARTRIDGE</strong>
               </div>
-
-              <div className="dial-copy dial-copy-top">
-                <span>BRUSH CONTROL</span>
-                <strong>{Math.round(1 + thickness * 99)}</strong>
+              <div className="cartridge-status">
+                <i />
+                {menuOpen ? "EJECTED" : "LOCKED"}
               </div>
+            </header>
 
-              <div className="dial-color-grid">
+            <div className="cartridge-body">
+              <section className="cartridge-section color-section">
+                <div className="cartridge-section-label">
+                  <span>01</span>
+                  <div>
+                    <strong>COLOR</strong>
+                    <small>FIST + MOVE</small>
+                  </div>
+                </div>
+
+                <div className="cartridge-color-grid">
                 {AIRLOOM_COLORS.map((color, index) => (
                   <button
                     key={color.name}
@@ -732,33 +685,73 @@ export function AirloomStudio() {
                     }}
                     aria-label={`Select ${color.name}`}
                     aria-pressed={index === colorIndex}
+                    tabIndex={menuOpen ? 0 : -1}
                   >
-                    <span style={{ background: color.value }} />
+                    <span
+                      className="color-swatch-core"
+                      style={{ background: color.value }}
+                    />
                   </button>
                 ))}
               </div>
+              </section>
 
-              <div className="dial-center">
+              <section className="cartridge-section thickness-section">
+                <div className="cartridge-section-label">
+                  <span>02</span>
+                  <div>
+                    <strong>THICKNESS</strong>
+                    <small>OPEN PALM + MOVE</small>
+                  </div>
+                  <b>{Math.round(1 + thickness * 99)}</b>
+                </div>
+
+                <div className="thickness-control">
+                  <div className="thickness-profile">
+                    <span className="thickness-marker" />
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                      step="0.005"
+                      value={thickness}
+                      onPointerDown={() => primeAudio()}
+                      onChange={(event) =>
+                        selectThickness(Number(event.currentTarget.value))
+                      }
+                      aria-label="Continuous stroke thickness"
+                      tabIndex={menuOpen ? 0 : -1}
+                    />
+                  </div>
+                  <div className="thickness-scale">
+                    <span>HAIRLINE</span>
+                    <span>HEAVY</span>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <footer className="cartridge-footer">
+              <div className="selected-brush">
                 <span
-                  className="current-color"
+                  className="selected-color-chip"
                   style={{ background: selectedColor.value }}
                 />
-                <strong>{selectedColor.name}</strong>
-                <small>
-                  {gesture === "fist"
-                    ? "MOVE HAND TO PICK COLOR"
-                    : gesture === "openPalm"
-                      ? "MOVE HAND TO SIZE"
-                      : "FIST: COLOR · OPEN: SIZE"}
-                </small>
+                <div>
+                  <small>ACTIVE BRUSH</small>
+                  <strong>{selectedColor.name}</strong>
+                </div>
               </div>
-
-              <div className="dial-scale-labels">
-                <span>THIN</span>
-                <span>THICK</span>
-              </div>
-            </div>
-          )}
+              <span className="selected-stroke-preview" />
+              <small className="cartridge-gesture-hint">
+                {gesture === "fist"
+                  ? "MOVE TO PICK COLOR"
+                  : gesture === "openPalm"
+                    ? "MOVE TO SIZE"
+                    : "SNAP TO HOLSTER"}
+              </small>
+            </footer>
+          </div>
         </aside>
 
         <nav className="minimal-tools" aria-label="Artwork controls">
@@ -791,14 +784,14 @@ export function AirloomStudio() {
             </div>
             <div>
               <span>✦</span>
-              <strong>Snap dial</strong>
+              <strong>Snap cartridge</strong>
             </div>
           </aside>
         )}
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "One finger draws · Two pan · Three orbit · Snap opens the dial"
+            ? "One finger draws · Two pan · Three orbit · Snap ejects the cartridge"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera above"}

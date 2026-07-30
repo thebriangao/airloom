@@ -336,345 +336,479 @@ button {
   backdrop-filter: blur(8px);
 }
 
-.brush-dial-shell {
-  --dial-color: #111;
-  --dial-lift: 0px;
-  --dial-scale: 1;
+.brush-cartridge-shell {
+  --cartridge-color: #111;
+  --marker-size: 16px;
+  --stroke-height: 8px;
+  --thickness-position: 32%;
   position: absolute;
   z-index: 18;
   top: 50%;
-  right: -20px;
-  width: 58px;
-  height: 94px;
+  right: 0;
+  width: 390px;
+  height: 460px;
   color: var(--black);
+  pointer-events: none;
   transform: translateY(-50%);
-  transition:
-    width 420ms cubic-bezier(0.2, 0.85, 0.2, 1),
-    height 420ms cubic-bezier(0.2, 0.85, 0.2, 1),
-    right 420ms cubic-bezier(0.2, 0.85, 0.2, 1);
 }
 
-.brush-dial-shell.is-open {
-  right: 34px;
-  width: 370px;
-  height: 370px;
-}
-
-.dial-trigger {
+.cartridge-tab {
   position: absolute;
-  z-index: 8;
+  z-index: 4;
   top: 50%;
-  left: 0;
-  display: grid;
-  width: 58px;
-  height: 94px;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid #090909;
-  border-radius: 30px 9px 9px 30px;
+  right: -11px;
+  display: flex;
+  width: 48px;
+  height: 112px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0;
+  border: 1px solid #050505;
+  border-radius: 18px 0 0 18px;
   background:
-    linear-gradient(90deg, #2d2d2d 0, #0f0f0f 68%),
-    #111;
+    linear-gradient(90deg, #303030 0, #151515 38%, #080808 100%);
   box-shadow:
-    0 1px 0 #555 inset,
-    -7px 9px 18px rgba(0, 0, 0, 0.19);
+    0 1px 0 #575757 inset,
+    0 -1px 0 #000 inset,
+    -9px 12px 24px rgba(0, 0, 0, 0.2);
   color: #fff;
   cursor: pointer;
+  pointer-events: auto;
   transform: translateY(-50%);
   transition:
-    left 420ms cubic-bezier(0.2, 0.85, 0.2, 1),
-    border-radius 300ms ease,
-    transform 300ms ease;
+    right 480ms cubic-bezier(0.18, 0.9, 0.2, 1.12),
+    width 480ms cubic-bezier(0.18, 0.9, 0.2, 1.12),
+    filter 180ms ease;
 }
 
-.is-open .dial-trigger {
-  left: 325px;
+.cartridge-tab:hover {
+  filter: brightness(1.18);
+}
+
+.brush-cartridge-shell.is-open .cartridge-tab {
+  right: 18px;
   width: 42px;
-  height: 84px;
-  border-radius: 0 24px 24px 0;
-  transform: translateY(-50%) translateY(var(--dial-lift));
+  border-radius: 0 14px 14px 0;
 }
 
-.dial-trigger:hover {
-  filter: brightness(1.2);
-}
-
-.dial-trigger-core {
-  width: 27px;
-  height: 27px;
-  border: 5px solid #777;
+.cartridge-tab-light {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #5d5d5d;
   border-radius: 50%;
-  background: #141414;
+  background: #8a8a86;
   box-shadow:
-    0 0 0 1px #000,
-    0 1px 0 #aaa inset;
+    0 0 0 2px #111,
+    0 1px 0 rgba(255, 255, 255, 0.6) inset;
+  transition:
+    background 180ms ease,
+    box-shadow 180ms ease;
 }
 
-.dial-trigger-notch {
-  position: absolute;
-  left: 13px;
-  width: 24px;
+.is-open .cartridge-tab-light {
+  background: var(--cartridge-color);
+  box-shadow:
+    0 0 0 2px #111,
+    0 0 11px color-mix(in srgb, var(--cartridge-color) 74%, transparent);
+}
+
+.cartridge-tab-grip {
+  display: grid;
+  gap: 4px;
+  width: 23px;
+  padding: 6px 4px;
+  border: 1px solid #3d3d3d;
+  border-radius: 6px;
+  background: #0b0b0b;
+  box-shadow:
+    0 1px 2px #000 inset,
+    0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.cartridge-tab-grip i {
+  display: block;
   height: 1px;
-  background: #585858;
+  background: #686868;
 }
 
-.dial-trigger-notch-a {
-  top: 16px;
-}
-
-.dial-trigger-notch-b {
-  bottom: 16px;
-}
-
-.dial-trigger small {
-  position: absolute;
-  right: 5px;
+.cartridge-tab small {
   font-family: var(--font-geist-mono), monospace;
   font-size: 6px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.16em;
   writing-mode: vertical-rl;
 }
 
-.brush-dial {
+.brush-cartridge {
   position: absolute;
+  z-index: 2;
   top: 50%;
-  left: 0;
-  width: 354px;
-  height: 354px;
-  border: 1px solid #070707;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 38% 31%, #fcfcfa 0, #ededeb 54%, #bdbdb9 72%, #222 73%, #111 100%);
+  right: 48px;
+  width: 326px;
+  overflow: hidden;
+  border: 1px solid #050505;
+  border-radius: 22px 6px 6px 22px;
+  background: #111;
   box-shadow:
-    0 2px 0 #fff inset,
-    0 -5px 9px rgba(0, 0, 0, 0.35) inset,
-    0 20px 0 -12px #050505,
-    0 30px 52px rgba(0, 0, 0, 0.28);
-  transform: translateY(-50%) translateY(var(--dial-lift)) scale(var(--dial-scale));
-  transform-origin: 55% 50%;
-  transition: transform 180ms ease;
+    0 1px 0 #5f5f5f inset,
+    0 20px 0 -13px #070707,
+    0 34px 54px rgba(0, 0, 0, 0.26);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(112%, -50%) scale(0.94);
+  transform-origin: right center;
+  transition:
+    transform 520ms cubic-bezier(0.16, 0.92, 0.22, 1.08),
+    opacity 160ms ease;
 }
 
-.brush-dial::before {
+.brush-cartridge-shell.is-open .brush-cartridge {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(0, -50%) scale(1);
+}
+
+.cartridge-backplate {
   position: absolute;
   z-index: 0;
-  inset: 13px;
-  border: 1px solid #5f5f5c;
-  border-radius: 50%;
-  background:
-    repeating-conic-gradient(from -2deg, transparent 0deg 3deg, rgba(0, 0, 0, 0.22) 3.2deg 3.7deg),
-    radial-gradient(circle, transparent 0 84%, rgba(255, 255, 255, 0.55) 84.5% 87%, rgba(0, 0, 0, 0.15) 88%);
-  content: "";
+  inset: 7px;
+  border: 1px solid #3d3d3d;
+  border-radius: 16px 3px 3px 16px;
   pointer-events: none;
 }
 
-.dial-bevel {
-  position: absolute;
+.cartridge-header {
+  position: relative;
   z-index: 1;
-  border-radius: 50%;
-  pointer-events: none;
+  display: flex;
+  height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid #363636;
+  background:
+    linear-gradient(105deg, rgba(255, 255, 255, 0.07), transparent 38%),
+    #121212;
+  color: #fff;
 }
 
-.dial-bevel-outer {
-  inset: 23px;
-  border: 1px solid rgba(0, 0, 0, 0.24);
-  box-shadow:
-    0 2px 2px rgba(255, 255, 255, 0.8) inset,
-    0 -3px 4px rgba(0, 0, 0, 0.18) inset;
-}
-
-.dial-bevel-inner {
-  inset: 72px;
-  border: 1px solid #b0b0ac;
-  background: rgba(249, 249, 246, 0.94);
-  box-shadow:
-    0 2px 7px rgba(0, 0, 0, 0.12) inset,
-    0 1px 0 #fff;
-}
-
-.thickness-arc {
-  position: absolute;
-  z-index: 5;
-  inset: 15px;
-  border-radius: 50%;
-  cursor: grab;
-  touch-action: none;
-}
-
-.thickness-arc:active {
-  cursor: grabbing;
-}
-
-.thickness-arc i,
-.thickness-marker {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform-origin: center;
-}
-
-.thickness-arc i {
-  width: 4px;
-  border-radius: 99px;
-  background: #bdbdb9;
-  transition:
-    background 90ms ease,
-    height 90ms ease;
-}
-
-.thickness-arc i.is-filled {
-  background: var(--dial-color);
-  box-shadow: 0 0 4px color-mix(in srgb, var(--dial-color) 55%, transparent);
-}
-
-.thickness-marker {
-  z-index: 7;
-  width: 1px;
-  height: 1px;
-}
-
-.thickness-marker b {
-  position: absolute;
-  top: -9px;
-  left: -9px;
+.cartridge-header span,
+.cartridge-header strong {
   display: block;
-  width: 18px;
-  height: 18px;
-  border: 4px solid #fff;
-  border-radius: 50%;
-  background: var(--dial-color);
-  box-shadow:
-    0 0 0 1px #111,
-    0 4px 8px rgba(0, 0, 0, 0.24);
 }
 
-.dial-copy {
-  position: absolute;
-  z-index: 6;
-  text-align: center;
-  pointer-events: none;
-}
-
-.dial-copy-top {
-  top: 34px;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.dial-copy span {
-  display: block;
-  color: #70706b;
+.cartridge-header span {
+  color: #868681;
   font-family: var(--font-geist-mono), monospace;
   font-size: 6px;
   letter-spacing: 0.16em;
 }
 
-.dial-copy strong {
-  display: block;
-  margin-top: 2px;
+.cartridge-header strong {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 690;
+  letter-spacing: 0.11em;
+}
+
+.cartridge-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9b9b96;
   font-family: var(--font-geist-mono), monospace;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 6px;
+  letter-spacing: 0.09em;
 }
 
-.dial-color-grid {
-  position: absolute;
-  z-index: 6;
-  top: 100px;
-  left: 50%;
+.cartridge-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cartridge-color);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--cartridge-color) 70%, transparent);
+}
+
+.cartridge-body {
+  position: relative;
+  z-index: 1;
+  padding: 15px 16px 13px;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    linear-gradient(#fff, #f0f0ed);
+  background-size: 12px 100%, auto;
+}
+
+.cartridge-section + .cartridge-section {
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid #c9c9c4;
+}
+
+.cartridge-section {
+  opacity: 0;
+  transform: translateX(14px);
+  transition:
+    opacity 240ms ease,
+    transform 380ms cubic-bezier(0.2, 0.85, 0.2, 1);
+}
+
+.is-open .cartridge-section {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.is-open .thickness-section {
+  transition-delay: 80ms;
+}
+
+.cartridge-section-label {
+  display: flex;
+  min-height: 28px;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.cartridge-section-label > span {
   display: grid;
-  grid-template-columns: repeat(5, 24px);
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #bcbcb7;
+  border-radius: 6px;
+  background: #fff;
+  color: #777772;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 6px;
+}
+
+.cartridge-section-label strong,
+.cartridge-section-label small {
+  display: block;
+}
+
+.cartridge-section-label strong {
+  font-size: 9px;
+  font-weight: 730;
+  letter-spacing: 0.1em;
+}
+
+.cartridge-section-label small {
+  margin-top: 2px;
+  color: #868680;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 5.5px;
+  letter-spacing: 0.09em;
+}
+
+.cartridge-section-label > b {
+  margin-left: auto;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 17px;
+  font-weight: 480;
+}
+
+.cartridge-color-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
   gap: 5px;
-  width: 140px;
-  padding: 7px;
-  border: 1px solid #c1c1bd;
-  border-radius: 18px;
-  background: rgba(255, 255, 252, 0.75);
-  box-shadow:
-    0 1px 0 #fff inset,
-    0 7px 15px rgba(0, 0, 0, 0.08);
-  transform: translateX(-50%);
-  backdrop-filter: blur(8px);
 }
 
-.dial-color-grid button {
+.cartridge-color-grid button {
+  position: relative;
   display: grid;
-  width: 24px;
-  height: 24px;
+  height: 29px;
   place-items: center;
   padding: 0;
-  border: 1px solid transparent;
+  border: 1px solid #c8c8c2;
   border-radius: 7px;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 2px 3px rgba(0, 0, 0, 0.06);
   cursor: pointer;
+  transition:
+    transform 160ms cubic-bezier(0.18, 0.86, 0.25, 1.35),
+    border-color 140ms ease,
+    box-shadow 160ms ease;
 }
 
-.dial-color-grid button:hover,
-.dial-color-grid button.is-selected {
+.cartridge-color-grid button:hover {
+  z-index: 2;
+  border-color: #7b7b76;
+  transform: translateY(-2px);
+}
+
+.cartridge-color-grid button.is-selected {
+  z-index: 3;
   border-color: #111;
-  background: #fff;
-  transform: scale(1.08);
+  box-shadow:
+    0 0 0 1px #fff inset,
+    0 0 0 2px #111,
+    0 7px 10px rgba(0, 0, 0, 0.18);
+  transform: translateY(-3px) scale(1.045);
 }
 
-.dial-color-grid button span {
+.color-swatch-core {
   display: block;
-  width: 16px;
-  height: 16px;
-  border: 1px solid rgba(0, 0, 0, 0.18);
-  border-radius: 50%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+  width: calc(100% - 8px);
+  height: 19px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  border-radius: 4px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.46) inset,
+    0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
-.dial-center {
+.thickness-control {
+  padding: 0 2px;
+}
+
+.thickness-profile {
+  position: relative;
+  height: 48px;
+  border: 1px solid #c2c2bd;
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg, #e4e4df, #fff);
+  box-shadow:
+    0 2px 5px rgba(0, 0, 0, 0.08) inset,
+    0 1px 0 #fff;
+  transition: box-shadow 160ms ease;
+}
+
+.thickness-profile::before {
   position: absolute;
-  z-index: 6;
-  bottom: 58px;
-  left: 50%;
-  width: 164px;
-  text-align: center;
-  transform: translateX(-50%);
+  inset: 8px 11px;
+  background: linear-gradient(
+    90deg,
+    var(--cartridge-color) 0 var(--thickness-position),
+    #c6c6c0 var(--thickness-position) 100%
+  );
+  clip-path: polygon(0 48%, 100% 4%, 100% 96%, 0 52%);
+  content: "";
+  filter: drop-shadow(0 2px 1px rgba(0, 0, 0, 0.13));
+}
+
+.thickness-profile:focus-within {
+  box-shadow:
+    0 0 0 2px #111,
+    0 2px 5px rgba(0, 0, 0, 0.08) inset;
+}
+
+.thickness-profile input {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: ew-resize;
+  opacity: 0;
+}
+
+.thickness-marker {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: clamp(11px, var(--thickness-position), calc(100% - 11px));
+  width: var(--marker-size);
+  height: var(--marker-size);
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: var(--cartridge-color);
+  box-shadow:
+    0 0 0 1px #111,
+    0 4px 8px rgba(0, 0, 0, 0.25);
   pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition:
+    left 60ms linear,
+    width 100ms ease,
+    height 100ms ease,
+    background 120ms ease;
 }
 
-.current-color {
-  display: inline-block;
-  width: 22px;
-  height: 7px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-  border-radius: 99px;
+.thickness-scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  color: #777772;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 5.5px;
+  letter-spacing: 0.1em;
 }
 
-.dial-center strong {
+.cartridge-footer {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 66px;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-top: 1px solid #353535;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.06), transparent 36%),
+    #111;
+  color: #fff;
+}
+
+.selected-brush {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.selected-color-chip {
+  width: 28px;
+  height: 28px;
+  border: 3px solid #202020;
+  border-radius: 8px;
+  box-shadow:
+    0 0 0 1px #6a6a6a,
+    0 4px 7px rgba(0, 0, 0, 0.35);
+}
+
+.selected-brush small,
+.selected-brush strong {
   display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+}
+
+.selected-brush small,
+.cartridge-gesture-hint {
+  color: #858580;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 5.5px;
+  letter-spacing: 0.1em;
+}
+
+.selected-brush strong {
+  margin-top: 3px;
+  font-size: 9px;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.dial-center small {
-  display: block;
-  margin-top: 3px;
-  color: #777771;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 5.5px;
-  letter-spacing: 0.08em;
+.selected-stroke-preview {
+  width: 64px;
+  height: var(--stroke-height);
+  max-height: 22px;
+  border-radius: 999px;
+  background: var(--cartridge-color);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--cartridge-color) 52%, transparent);
+  transition:
+    height 100ms ease,
+    background 120ms ease;
 }
 
-.dial-scale-labels {
-  position: absolute;
-  z-index: 6;
-  right: 50px;
-  bottom: 56px;
-  left: 50px;
-  display: flex;
-  justify-content: space-between;
-  color: #6f6f6a;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 6px;
-  letter-spacing: 0.12em;
-  pointer-events: none;
+.cartridge-gesture-hint {
+  grid-column: 1 / -1;
+  margin-top: -6px;
 }
 
 .minimal-tools {
@@ -792,9 +926,10 @@ button {
     width: 200px;
   }
 
-  .brush-dial-shell.is-open {
-    right: -4px;
-    transform: translateY(-50%) scale(0.82);
+  .brush-cartridge-shell {
+    top: 54%;
+    right: -2px;
+    transform: translateY(-50%) scale(0.86);
     transform-origin: right center;
   }
 
@@ -830,6 +965,12 @@ button {
 @media (max-width: 480px) {
   .camera-bubble {
     width: 158px;
+  }
+
+  .brush-cartridge-shell {
+    top: 57%;
+    right: -4px;
+    transform: translateY(-50%) scale(0.74);
   }
 
   .camera-placeholder strong {
