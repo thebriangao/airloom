@@ -342,8 +342,8 @@ button {
   --stroke-height: 8px;
   --thickness-position: 32%;
   position: absolute;
-  z-index: 18;
-  top: 50%;
+  z-index: 11;
+  top: calc(50% + 44px);
   right: 0;
   width: 390px;
   height: 460px;
@@ -356,9 +356,9 @@ button {
   position: absolute;
   z-index: 4;
   top: 50%;
-  right: -11px;
+  right: 18px;
   display: flex;
-  width: 48px;
+  width: 42px;
   height: 112px;
   flex-direction: column;
   align-items: center;
@@ -366,21 +366,23 @@ button {
   gap: 10px;
   padding: 0;
   border: 1px solid #050505;
-  border-radius: 18px 0 0 18px;
+  border-radius: 14px 0 0 14px;
   background:
     linear-gradient(90deg, #303030 0, #151515 38%, #080808 100%);
   box-shadow:
     0 1px 0 #575757 inset,
     0 -1px 0 #000 inset,
-    -9px 12px 24px rgba(0, 0, 0, 0.2);
+    -5px 8px 14px rgba(0, 0, 0, 0.13);
   color: #fff;
   cursor: pointer;
   pointer-events: auto;
-  transform: translateY(-50%);
+  backface-visibility: hidden;
+  transform: translate3d(29px, -50%, 0);
   transition:
-    right 480ms cubic-bezier(0.18, 0.9, 0.2, 1.12),
-    width 480ms cubic-bezier(0.18, 0.9, 0.2, 1.12),
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 220ms ease,
     filter 180ms ease;
+  will-change: transform;
 }
 
 .cartridge-tab:hover {
@@ -388,9 +390,8 @@ button {
 }
 
 .brush-cartridge-shell.is-open .cartridge-tab {
-  right: 18px;
-  width: 42px;
   border-radius: 0 14px 14px 0;
+  transform: translate3d(0, -50%, 0);
 }
 
 .cartridge-tab-light {
@@ -452,21 +453,24 @@ button {
   background: #111;
   box-shadow:
     0 1px 0 #5f5f5f inset,
-    0 20px 0 -13px #070707,
-    0 34px 54px rgba(0, 0, 0, 0.26);
-  opacity: 0;
+    -8px 15px 26px rgba(0, 0, 0, 0.14);
+  backface-visibility: hidden;
+  contain: layout paint;
   pointer-events: none;
-  transform: translate(112%, -50%) scale(0.94);
+  transform: translate3d(108%, -50%, 0);
   transform-origin: right center;
+  visibility: hidden;
   transition:
-    transform 520ms cubic-bezier(0.16, 0.92, 0.22, 1.08),
-    opacity 160ms ease;
+    transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 360ms;
+  will-change: transform;
 }
 
 .brush-cartridge-shell.is-open .brush-cartridge {
-  opacity: 1;
   pointer-events: auto;
-  transform: translate(0, -50%) scale(1);
+  transform: translate3d(0, -50%, 0);
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .cartridge-backplate {
@@ -547,20 +551,7 @@ button {
 }
 
 .cartridge-section {
-  opacity: 0;
-  transform: translateX(14px);
-  transition:
-    opacity 240ms ease,
-    transform 380ms cubic-bezier(0.2, 0.85, 0.2, 1);
-}
-
-.is-open .cartridge-section {
   opacity: 1;
-  transform: translateX(0);
-}
-
-.is-open .thickness-section {
-  transition-delay: 80ms;
 }
 
 .cartridge-section-label {

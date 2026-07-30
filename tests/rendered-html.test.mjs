@@ -62,7 +62,7 @@ test("camera access is requested before loading hand tracking", async () => {
 });
 
 test("keeps tracking, gestures, and rendering in separate modules", async () => {
-  const [studio, gestures, scene, architecture, packageJson] =
+  const [studio, gestures, scene, architecture, packageJson, styles] =
     await Promise.all([
       readFile(
         new URL("../app/airloom/AirloomStudio.tsx", import.meta.url),
@@ -75,6 +75,7 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
       readFile(new URL("../app/airloom/AirScene.ts", import.meta.url), "utf8"),
       readFile(new URL("../ARCHITECTURE.md", import.meta.url), "utf8"),
       readFile(new URL("../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     ]);
 
   assert.match(studio, /HandLandmarker/);
@@ -96,5 +97,8 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.match(packageJson, /"@mediapipe\/tasks-vision"/);
   assert.match(packageJson, /"three"/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
+  assert.match(styles, /\.brush-cartridge \{[\s\S]*?translate3d/);
+  assert.match(styles, /\.brush-cartridge \{[\s\S]*?will-change: transform/);
+  assert.doesNotMatch(styles, /0 34px 54px/);
   await access(new URL("../public/og-v2.png", import.meta.url));
 });
