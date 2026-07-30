@@ -45,11 +45,42 @@ export function splitStrokeOutsideEraser(
   points: THREE.Vector3[],
   eraserPoint: THREE.Vector3,
   radius: number,
+  eraserStart = eraserPoint,
 ) {
+  if (points.length === 0) return [];
+
+  const sampleStep = THREE.MathUtils.clamp(radius * 0.42, 0.025, 0.1);
+  const sampledPoints: THREE.Vector3[] = [points[0]];
+  for (let index = 1; index < points.length; index += 1) {
+    const start = points[index - 1];
+    const end = points[index];
+    const steps = Math.min(
+      18,
+      Math.max(1, Math.ceil(start.distanceTo(end) / sampleStep)),
+    );
+    for (let step = 1; step <= steps; step += 1) {
+      sampledPoints.push(start.clone().lerp(end, step / steps));
+    }
+  }
+
+  const eraserPath = new THREE.Line3(eraserStart, eraserPoint);
+  const closestPoint = new THREE.Vector3();
+  const eraserMoved =
+    eraserStart.distanceToSquared(eraserPoint) > Number.EPSILON;
+  const outside = sampledPoints.map((point) => {
+    if (!eraserMoved) {
+      return point.distanceToSquared(eraserPoint) > radius * radius;
+    }
+    eraserPath.closestPointToPoint(point, true, closestPoint);
+    return point.distanceToSquared(closestPoint) > radius * radius;
+  });
+  if (outside.every(Boolean)) return [points];
+
   const runs: THREE.Vector3[][] = [];
   let run: THREE.Vector3[] = [];
-  for (const point of points) {
-    if (point.distanceTo(eraserPoint) > radius) {
+  for (let index = 0; index < sampledPoints.length; index += 1) {
+    const point = sampledPoints[index];
+    if (outside[index]) {
       run.push(point);
     } else if (run.length > 0) {
       runs.push(run);
@@ -70,6 +101,7 @@ export class AirScene {
   private targetRotation = new THREE.Vector2();
   private strokes: Stroke[] = [];
   private activeStroke?: Stroke;
+  private previousEraserPoint?: THREE.Vector3;
   private frame = 0;
   private width = 1;
   private height = 1;
@@ -221,6 +253,7 @@ export class AirScene {
   }
 
   addPoint(point: THREE.Vector3, color: string, radius: number) {
+    this.previousEraserPoint = undefined;
     if (!this.activeStroke) {
       this.activeStroke = this.createStroke([point], color, radius);
       this.strokes.push(this.activeStroke);
@@ -245,21 +278,23 @@ export class AirScene {
   }
 
   eraseAt(point: THREE.Vector3, radius: number) {
-    this.endStroke();
+    this.activeStroke = undefined;
+    const previous = this.previousEraserPoint;
+    const eraserStart =
+      previous && previous.distanceTo(point) <= radius * 4.5
+        ? previous
+        : point;
     let erased = false;
 
     for (const stroke of [...this.strokes]) {
-      const eraserRadius = radius + stroke.radius * 0.7;
+      const eraserRadius = radius + stroke.radius * 1.15;
       const runs = splitStrokeOutsideEraser(
         stroke.points,
         point,
         eraserRadius,
+        eraserStart,
       );
-      const survivingPointCount = runs.reduce(
-        (total, run) => total + run.length,
-        0,
-      );
-      if (survivingPointCount === stroke.points.length) continue;
+      if (runs.length === 1 && runs[0] === stroke.points) continue;
 
       erased = true;
       this.strokes = this.strokes.filter((candidate) => candidate !== stroke);
@@ -275,11 +310,13 @@ export class AirScene {
       }
     }
 
+    this.previousEraserPoint = point.clone();
     return erased;
   }
 
   endStroke() {
     this.activeStroke = undefined;
+    this.previousEraserPoint = undefined;
   }
 
   pan(deltaX: number, deltaY: number) {
