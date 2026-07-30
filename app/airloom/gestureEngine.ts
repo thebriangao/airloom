@@ -6,14 +6,20 @@ import type {
 } from "./types";
 
 const HOLD_MS = 115;
-const DRAW_PINCH_START_RATIO = 0.46;
-const DRAW_PINCH_RELEASE_RATIO = 0.68;
-const DRAW_PINCH_RELEASE_HOLD_MS = 120;
+const DRAW_PINCH_START_RATIO = 0.52;
+const DRAW_PINCH_RELEASE_RATIO = 0.9;
+const DRAW_PINCH_START_DISTANCE = 0.06;
+const DRAW_PINCH_RELEASE_DISTANCE = 0.085;
+const DRAW_PINCH_RELEASE_HOLD_MS = 240;
 const SNAP_COOLDOWN_MS = 900;
 const SNAP_WINDOW_MS = 650;
 
 function distance(a: Landmark, b: Landmark) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
+function distance2D(a: Landmark, b: Landmark) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function midpoint(points: Landmark[]): Point3 {
@@ -102,6 +108,7 @@ export class GestureEngine {
   private previousMiddleTip?: Landmark;
   private drawingPinch = false;
   private drawingPinchReleaseAt = 0;
+  private filteredThumbIndexRatio = 1;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
     const { pose: rawPose, fingerCount } = classifyPose(landmarks);
@@ -115,19 +122,30 @@ export class GestureEngine {
 
     const handScale = distance(landmarks[0], landmarks[9]);
     const palmSpan = Math.max(0.025, distance(landmarks[5], landmarks[17]));
-    const thumbIndexRatio =
-      distance(landmarks[4], landmarks[8]) / palmSpan;
+    const palmSpan2D = Math.max(
+      0.025,
+      distance2D(landmarks[5], landmarks[17]),
+    );
+    const thumbIndexDistance = distance2D(landmarks[4], landmarks[8]);
+    const thumbIndexRatio = thumbIndexDistance / palmSpan2D;
+    this.filteredThumbIndexRatio =
+      this.filteredThumbIndexRatio * 0.78 + thumbIndexRatio * 0.22;
     const thumbMiddleRatio =
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];
 
     if (this.drawingPinch) {
-      if (thumbIndexRatio > DRAW_PINCH_RELEASE_RATIO) {
+      const releaseSignal =
+        thumbIndexRatio > DRAW_PINCH_RELEASE_RATIO &&
+        thumbIndexDistance > DRAW_PINCH_RELEASE_DISTANCE;
+      if (releaseSignal) {
         if (this.drawingPinchReleaseAt === 0) {
           this.drawingPinchReleaseAt = timestamp;
         } else if (
           timestamp - this.drawingPinchReleaseAt >=
-          DRAW_PINCH_RELEASE_HOLD_MS
+            DRAW_PINCH_RELEASE_HOLD_MS &&
+          this.filteredThumbIndexRatio >
+            DRAW_PINCH_RELEASE_RATIO * 0.82
         ) {
           this.drawingPinch = false;
           this.drawingPinchReleaseAt = 0;
@@ -135,9 +153,13 @@ export class GestureEngine {
       } else {
         this.drawingPinchReleaseAt = 0;
       }
-    } else if (thumbIndexRatio < DRAW_PINCH_START_RATIO) {
+    } else if (
+      thumbIndexRatio < DRAW_PINCH_START_RATIO ||
+      thumbIndexDistance < DRAW_PINCH_START_DISTANCE
+    ) {
       this.drawingPinch = true;
       this.drawingPinchReleaseAt = 0;
+      this.filteredThumbIndexRatio = thumbIndexRatio;
     }
 
     if (thumbMiddleRatio < 0.72) {
@@ -194,5 +216,6 @@ export class GestureEngine {
     this.previousMiddleTip = undefined;
     this.drawingPinch = false;
     this.drawingPinchReleaseAt = 0;
+    this.filteredThumbIndexRatio = 1;
   }
 }

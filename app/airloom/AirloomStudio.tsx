@@ -55,7 +55,7 @@ const clamp = (value: number, minimum = 0, maximum = 1) =>
 const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
 const stableDelta = (value: number, deadZone: number) =>
   Math.abs(value) < deadZone ? 0 : value;
-const HAND_TRACKING_GRACE_MS = 150;
+const HAND_TRACKING_GRACE_MS = 350;
 
 type DepthCalibration = {
   handScale: number;

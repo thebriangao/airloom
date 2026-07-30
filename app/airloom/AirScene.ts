@@ -230,19 +230,14 @@ export class AirScene {
     const previous = this.activeStroke.points.at(-1)!;
     const distance = point.distanceTo(previous);
     if (!Number.isFinite(distance)) return;
-    if (distance > 0.9) {
-      this.endStroke();
-      this.addPoint(point, color, radius);
-      return;
-    }
 
     const target =
-      distance > 0.26
+      distance > 0.32
         ? previous
             .clone()
-            .add(point.clone().sub(previous).setLength(0.26))
+            .add(point.clone().sub(previous).setLength(0.32))
         : point;
-    const smoothed = previous.clone().lerp(target, 0.44);
+    const smoothed = previous.clone().lerp(target, 0.46);
     if (smoothed.distanceTo(previous) < 0.014) return;
 
     this.activeStroke.points.push(smoothed);
