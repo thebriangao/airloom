@@ -6,6 +6,8 @@ type Stroke = {
   color: string;
   radius: number;
   mesh: THREE.Mesh;
+  startCap?: THREE.Mesh;
+  endCap?: THREE.Mesh;
 };
 
 export function projectNormalizedPointToArtwork(
@@ -17,7 +19,10 @@ export function projectNormalizedPointToArtwork(
 ) {
   artwork.updateMatrixWorld(true);
   raycaster.setFromCamera(
-    new THREE.Vector2(1 - point.x * 2, 1 - point.y * 2),
+    new THREE.Vector2(
+      1 - THREE.MathUtils.clamp(point.x, 0.018, 0.982) * 2,
+      1 - THREE.MathUtils.clamp(point.y, 0.018, 0.982) * 2,
+    ),
     camera,
   );
 
@@ -61,6 +66,8 @@ export class AirScene {
   private raycaster = new THREE.Raycaster();
   private renderer: THREE.WebGLRenderer;
   private artwork = new THREE.Group();
+  private targetPosition = new THREE.Vector3();
+  private targetRotation = new THREE.Vector2();
   private strokes: Stroke[] = [];
   private activeStroke?: Stroke;
   private frame = 0;
@@ -87,6 +94,17 @@ export class AirScene {
 
     const loop = () => {
       this.frame = window.requestAnimationFrame(loop);
+      this.artwork.position.lerp(this.targetPosition, 0.14);
+      this.artwork.rotation.x = THREE.MathUtils.lerp(
+        this.artwork.rotation.x,
+        this.targetRotation.x,
+        0.12,
+      );
+      this.artwork.rotation.y = THREE.MathUtils.lerp(
+        this.artwork.rotation.y,
+        this.targetRotation.y,
+        0.12,
+      );
       this.renderer.render(this.scene, this.camera);
     };
     loop();
@@ -143,22 +161,61 @@ export class AirScene {
     );
     if (points.length === 1) mesh.position.copy(points[0]);
     this.artwork.add(mesh);
-    return {
+    const stroke: Stroke = {
       points: points.map((point) => point.clone()),
       color,
       radius,
       mesh,
     };
+    this.updateStrokeCaps(stroke);
+    return stroke;
+  }
+
+  private updateStrokeCaps(stroke: Stroke) {
+    if (stroke.points.length < 2) {
+      for (const cap of [stroke.startCap, stroke.endCap]) {
+        if (!cap) continue;
+        cap.geometry.dispose();
+        this.artwork.remove(cap);
+      }
+      stroke.startCap = undefined;
+      stroke.endCap = undefined;
+      return;
+    }
+
+    const material = stroke.mesh.material as THREE.Material;
+    if (!stroke.startCap) {
+      stroke.startCap = new THREE.Mesh(
+        new THREE.SphereGeometry(stroke.radius, 10, 10),
+        material,
+      );
+      this.artwork.add(stroke.startCap);
+    }
+    if (!stroke.endCap) {
+      stroke.endCap = new THREE.Mesh(
+        new THREE.SphereGeometry(stroke.radius, 10, 10),
+        material,
+      );
+      this.artwork.add(stroke.endCap);
+    }
+    stroke.startCap.position.copy(stroke.points[0]);
+    stroke.endCap.position.copy(stroke.points.at(-1)!);
   }
 
   private rebuildStroke(stroke: Stroke) {
     stroke.mesh.geometry.dispose();
     stroke.mesh.geometry = this.geometryForPoints(stroke.points, stroke.radius);
     stroke.mesh.position.set(0, 0, 0);
+    this.updateStrokeCaps(stroke);
   }
 
   private removeStroke(stroke: Stroke) {
     stroke.mesh.geometry.dispose();
+    for (const cap of [stroke.startCap, stroke.endCap]) {
+      if (!cap) continue;
+      cap.geometry.dispose();
+      this.artwork.remove(cap);
+    }
     (stroke.mesh.material as THREE.Material).dispose();
     this.artwork.remove(stroke.mesh);
   }
@@ -171,8 +228,22 @@ export class AirScene {
     }
 
     const previous = this.activeStroke.points.at(-1)!;
-    const smoothed = previous.clone().lerp(point, 0.38);
-    if (smoothed.distanceTo(previous) < 0.018) return;
+    const distance = point.distanceTo(previous);
+    if (!Number.isFinite(distance)) return;
+    if (distance > 0.9) {
+      this.endStroke();
+      this.addPoint(point, color, radius);
+      return;
+    }
+
+    const target =
+      distance > 0.26
+        ? previous
+            .clone()
+            .add(point.clone().sub(previous).setLength(0.26))
+        : point;
+    const smoothed = previous.clone().lerp(target, 0.44);
+    if (smoothed.distanceTo(previous) < 0.014) return;
 
     this.activeStroke.points.push(smoothed);
     this.rebuildStroke(this.activeStroke);
@@ -217,17 +288,21 @@ export class AirScene {
   }
 
   pan(deltaX: number, deltaY: number) {
-    this.artwork.position.x += deltaX * 8;
-    this.artwork.position.y -= deltaY * 8;
+    this.targetPosition.x += deltaX * 8;
+    this.targetPosition.y -= deltaY * 8;
   }
 
   orbit(deltaX: number, deltaY: number, deltaDepth: number) {
-    this.artwork.rotation.y -= deltaX * 5.5;
-    this.artwork.rotation.x -= deltaY * 5.5;
-    this.artwork.position.z = THREE.MathUtils.clamp(
-      this.artwork.position.z + deltaDepth * 12,
-      -3.2,
-      3.2,
+    this.targetRotation.y -= deltaX * 5.8;
+    this.targetRotation.x = THREE.MathUtils.clamp(
+      this.targetRotation.x - deltaY * 5.8,
+      -1.45,
+      1.45,
+    );
+    this.targetPosition.z = THREE.MathUtils.clamp(
+      this.targetPosition.z + deltaDepth * 34,
+      -4.6,
+      4.6,
     );
   }
 
@@ -244,11 +319,12 @@ export class AirScene {
       this.removeStroke(stroke);
     }
     this.strokes = [];
-    this.artwork.position.set(0, 0, 0);
-    this.artwork.rotation.set(0, 0, 0);
+    this.resetView();
   }
 
   resetView() {
+    this.targetPosition.set(0, 0, 0);
+    this.targetRotation.set(0, 0);
     this.artwork.position.set(0, 0, 0);
     this.artwork.rotation.set(0, 0, 0);
   }

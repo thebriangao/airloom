@@ -22,6 +22,7 @@ import {
   type GestureResult,
   type HandPose,
   type Landmark,
+  type Point3,
 } from "./types";
 
 type CameraState =
@@ -52,6 +53,8 @@ const clamp = (value: number, minimum = 0, maximum = 1) =>
   Math.max(minimum, Math.min(maximum, value));
 
 const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
+const stableDelta = (value: number, deadZone: number) =>
+  Math.abs(value) < deadZone ? 0 : value;
 
 type DepthCalibration = {
   handScale: number;
@@ -121,6 +124,7 @@ export function AirloomStudio() {
     y: number;
     scale: number;
   } | null>(null);
+  const filteredTipRef = useRef<Point3 | null>(null);
   const depthCalibrationRef = useRef<DepthCalibration | null>(null);
   const menuOpenRef = useRef(false);
   const colorIndexRef = useRef(0);
@@ -446,11 +450,22 @@ export function AirloomStudio() {
       const landmarks = hands[0];
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
+      if (!filteredTipRef.current) {
+        filteredTipRef.current = { ...result.indexTip };
+      } else {
+        filteredTipRef.current.x +=
+          (result.indexTip.x - filteredTipRef.current.x) * 0.34;
+        filteredTipRef.current.y +=
+          (result.indexTip.y - filteredTipRef.current.y) * 0.34;
+        filteredTipRef.current.z +=
+          (result.indexTip.z - filteredTipRef.current.z) * 0.28;
+      }
+      const filteredTip = filteredTipRef.current;
 
       if (cursorRef.current) {
         cursorRef.current.style.opacity = "1";
-        cursorRef.current.style.left = `${(1 - result.indexTip.x) * 100}%`;
-        cursorRef.current.style.top = `${result.indexTip.y * 100}%`;
+        cursorRef.current.style.left = `${(1 - filteredTip.x) * 100}%`;
+        cursorRef.current.style.top = `${filteredTip.y * 100}%`;
       }
 
       if (
@@ -490,6 +505,22 @@ export function AirloomStudio() {
       }
 
       const previous = previousControlRef.current;
+      const controlSample =
+        previous?.pose === controlPose
+          ? {
+              pose: controlPose,
+              x: previous.x + (result.palm.x - previous.x) * 0.22,
+              y: previous.y + (result.palm.y - previous.y) * 0.22,
+              scale:
+                previous.scale +
+                (result.handScale - previous.scale) * 0.18,
+            }
+          : {
+              pose: controlPose,
+              x: result.palm.x,
+              y: result.palm.y,
+              scale: result.handScale,
+            };
       if (controlPose === "draw") {
         if (previous?.pose !== "draw") {
           sceneRef.current?.endStroke();
@@ -504,9 +535,9 @@ export function AirloomStudio() {
         const calibration = depthCalibrationRef.current;
         const trackedDepth = brushDepth(result, calibration);
         calibration.filteredDepth +=
-          (trackedDepth - calibration.filteredDepth) * 0.3;
+          (trackedDepth - calibration.filteredDepth) * 0.22;
         const point = sceneRef.current?.normalizedToArtwork(
-          result.indexTip,
+          filteredTip,
           calibration.filteredDepth,
         );
         if (point) {
@@ -518,24 +549,19 @@ export function AirloomStudio() {
 
       if (previous?.pose === controlPose && controlPose === "pan2d") {
         sceneRef.current?.pan(
-          -(result.palm.x - previous.x),
-          result.palm.y - previous.y,
+          -stableDelta(controlSample.x - previous.x, 0.00045),
+          stableDelta(controlSample.y - previous.y, 0.00045),
         );
       }
       if (previous?.pose === controlPose && controlPose === "orbit3d") {
         sceneRef.current?.orbit(
-          result.palm.x - previous.x,
-          result.palm.y - previous.y,
-          result.handScale - previous.scale,
+          stableDelta(controlSample.x - previous.x, 0.0004),
+          stableDelta(controlSample.y - previous.y, 0.0004),
+          stableDelta(controlSample.scale - previous.scale, 0.00022),
         );
       }
 
-      previousControlRef.current = {
-        pose: controlPose,
-        x: result.palm.x,
-        y: result.palm.y,
-        scale: result.handScale,
-      };
+      previousControlRef.current = controlSample;
     },
     [
       applyToolAtPoint,
@@ -587,6 +613,7 @@ export function AirloomStudio() {
     clapMotionRef.current = null;
     suddenSoundDetectorRef.current.reset();
     previousControlRef.current = null;
+    filteredTipRef.current = null;
     depthCalibrationRef.current = null;
     if (cursorRef.current) cursorRef.current.style.opacity = "0";
   }, []);
@@ -614,6 +641,7 @@ export function AirloomStudio() {
           clapContactRef.current = false;
           sceneRef.current?.endStroke();
           previousControlRef.current = null;
+          filteredTipRef.current = null;
           updateGesture("none");
           if (cursorRef.current) cursorRef.current.style.opacity = "0";
         }
@@ -1106,7 +1134,7 @@ export function AirloomStudio() {
           <aside className="gesture-guide">
             <div>
               <span>1</span>
-              <strong>Draw</strong>
+              <strong>Pinch draw</strong>
             </div>
             <div>
               <span>2</span>
@@ -1129,7 +1157,7 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "Pinch thumb + index to draw · Release to stop · Move toward or away for depth · Two pan · Three orbit"
+            ? "Pinch to draw · Release to stop · Two pan · Three orbit · Move hand in or out to zoom"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
             : "Draw with your mouse now, or enable the camera and microphone above"}

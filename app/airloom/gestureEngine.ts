@@ -6,9 +6,8 @@ import type {
 } from "./types";
 
 const HOLD_MS = 115;
-const DRAW_PINCH_HOLD_MS = 65;
-const DRAW_PINCH_START_RATIO = 0.42;
-const DRAW_PINCH_RELEASE_RATIO = 0.66;
+const DRAW_PINCH_START_RATIO = 0.46;
+const DRAW_PINCH_RELEASE_RATIO = 0.68;
 const SNAP_COOLDOWN_MS = 900;
 const SNAP_WINDOW_MS = 650;
 
@@ -101,7 +100,6 @@ export class GestureEngine {
   private lastSnapAt = 0;
   private previousMiddleTip?: Landmark;
   private drawingPinch = false;
-  private drawingPinchCandidateAt = 0;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
     const { pose: rawPose, fingerCount } = classifyPose(landmarks);
@@ -124,18 +122,9 @@ export class GestureEngine {
     if (this.drawingPinch) {
       if (thumbIndexRatio > DRAW_PINCH_RELEASE_RATIO) {
         this.drawingPinch = false;
-        this.drawingPinchCandidateAt = 0;
       }
     } else if (thumbIndexRatio < DRAW_PINCH_START_RATIO) {
-      if (this.drawingPinchCandidateAt === 0) {
-        this.drawingPinchCandidateAt = timestamp;
-      } else if (
-        timestamp - this.drawingPinchCandidateAt >= DRAW_PINCH_HOLD_MS
-      ) {
-        this.drawingPinch = true;
-      }
-    } else {
-      this.drawingPinchCandidateAt = 0;
+      this.drawingPinch = true;
     }
 
     if (thumbMiddleRatio < 0.72) {
@@ -191,6 +180,5 @@ export class GestureEngine {
     this.snapArmedAt = 0;
     this.previousMiddleTip = undefined;
     this.drawingPinch = false;
-    this.drawingPinchCandidateAt = 0;
   }
 }
