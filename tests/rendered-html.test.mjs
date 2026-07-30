@@ -99,6 +99,7 @@ test("keeps tracking, gestures, and rendering in separate modules", async () => 
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
   assert.match(styles, /\.brush-cartridge \{[\s\S]*?translate3d/);
   assert.match(styles, /\.brush-cartridge \{[\s\S]*?will-change: transform/);
+  assert.match(styles, /\.brush-cartridge \{[\s\S]*?border-radius: 18px;/);
   assert.doesNotMatch(styles, /0 34px 54px/);
   await access(new URL("../public/og-v2.png", import.meta.url));
 });

@@ -449,7 +449,7 @@ button {
   width: 326px;
   overflow: hidden;
   border: 1px solid #050505;
-  border-radius: 22px 6px 6px 22px;
+  border-radius: 18px;
   background: #111;
   box-shadow:
     0 1px 0 #5f5f5f inset,
@@ -478,7 +478,7 @@ button {
   z-index: 0;
   inset: 7px;
   border: 1px solid #3d3d3d;
-  border-radius: 16px 3px 3px 16px;
+  border-radius: 12px;
   pointer-events: none;
 }
 
