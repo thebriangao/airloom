@@ -55,6 +55,7 @@ const clamp = (value: number, minimum = 0, maximum = 1) =>
 const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
 const stableDelta = (value: number, deadZone: number) =>
   Math.abs(value) < deadZone ? 0 : value;
+const HAND_TRACKING_GRACE_MS = 150;
 
 type DepthCalibration = {
   handScale: number;
@@ -116,6 +117,7 @@ export function AirloomStudio() {
   } | null>(null);
   const animationRef = useRef(0);
   const lastVideoTimeRef = useRef(-1);
+  const lastHandsSeenAtRef = useRef(-Infinity);
   const gestureEngineRef = useRef(new GestureEngine());
   const gestureRef = useRef<HandPose>("none");
   const previousControlRef = useRef<{
@@ -615,6 +617,7 @@ export function AirloomStudio() {
     previousControlRef.current = null;
     filteredTipRef.current = null;
     depthCalibrationRef.current = null;
+    lastHandsSeenAtRef.current = -Infinity;
     if (cursorRef.current) cursorRef.current.style.opacity = "0";
   }, []);
 
@@ -635,8 +638,12 @@ export function AirloomStudio() {
         const result = landmarker.detectForVideo(video, timestamp);
         const hands = result.landmarks as Landmark[][];
         if (hands.length > 0) {
+          lastHandsSeenAtRef.current = timestamp;
           processHands(hands, timestamp);
-        } else {
+        } else if (
+          timestamp - lastHandsSeenAtRef.current >
+          HAND_TRACKING_GRACE_MS
+        ) {
           gestureEngineRef.current.reset();
           clapContactRef.current = false;
           sceneRef.current?.endStroke();
