@@ -39,7 +39,8 @@ type SoundKind =
   | "color"
   | "size"
   | "eraserOn"
-  | "eraserOff";
+  | "eraserOff"
+  | "undo";
 const POSE_LABELS: Record<HandPose, string> = {
   none: "Show your hand",
   draw: "Drawing",
@@ -177,6 +178,19 @@ export function AirloomStudio() {
   const pointerClickStrokeCountRef = useRef(0);
   const lastPointerClickAtRef = useRef(-Infinity);
   const lastPointerClickPositionRef = useRef<Point3 | null>(null);
+  const sideViewControlRef = useRef<{ x: number; y: number } | null>(null);
+  const sideViewOrbitActiveRef = useRef(false);
+  const sideViewPointerRef = useRef<{
+    x: number;
+    pointerId: number;
+  } | null>(null);
+  const undoSwipeRef = useRef<{
+    x: number;
+    startedAt: number;
+    travel: number;
+    timestamp: number;
+  } | null>(null);
+  const lastUndoAtRef = useRef(-Infinity);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraError, setCameraError] = useState("");
@@ -191,6 +205,8 @@ export function AirloomStudio() {
   const [hasArtwork, setHasArtwork] = useState(false);
   const [objectGrabSelected, setObjectGrabSelected] = useState(false);
   const [snapKind, setSnapKind] = useState<SnapKind>("none");
+  const [sideViewOrbiting, setSideViewOrbiting] = useState(false);
+  const [sideViewReturning, setSideViewReturning] = useState(false);
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
@@ -271,6 +287,7 @@ export function AirloomStudio() {
         size: [170, 220],
         eraserOn: [310, 155],
         eraserOff: [180, 360],
+        undo: [430, 245],
       };
       const [start, end] = frequencies[kind];
 
@@ -294,6 +311,31 @@ export function AirloomStudio() {
     },
     [primeAudio],
   );
+
+  const undoArtwork = useCallback(() => {
+    releaseObjectGrab();
+    sceneRef.current?.undo();
+    playSound("undo");
+  }, [playSound, releaseObjectGrab]);
+
+  const releaseSideViewOrbit = useCallback(() => {
+    if (!sideViewOrbitActiveRef.current) return;
+    sideViewOrbitActiveRef.current = false;
+    sideViewControlRef.current = null;
+    sideViewPointerRef.current = null;
+    sceneRef.current?.endSideViewOrbit();
+    setSideViewOrbiting(false);
+    setSideViewReturning(true);
+  }, []);
+
+  const resetSideViewControl = useCallback(() => {
+    sideViewOrbitActiveRef.current = false;
+    sideViewControlRef.current = null;
+    sideViewPointerRef.current = null;
+    sceneRef.current?.resetSideView();
+    setSideViewOrbiting(false);
+    setSideViewReturning(false);
+  }, []);
 
   const selectColor = useCallback(
     (index: number, audible = true) => {
@@ -430,6 +472,7 @@ export function AirloomStudio() {
       canvasRef.current,
       sideCanvasRef.current,
       setHasArtwork,
+      () => setSideViewReturning(false),
     );
     sceneRef.current = scene;
     const resize = () => {
@@ -460,93 +503,36 @@ export function AirloomStudio() {
         return;
       }
       const key = event.key.toLowerCase();
-      let handled = true;
-
-      if (key === "m" && !event.repeat) {
-        toggleMenu();
-      } else if (key === "e" && !event.repeat) {
-        toggleEraser();
-      } else if (key === "b" && eraserEnabledRef.current) {
-        toggleEraser();
-      } else if (key === "z") {
-        releaseObjectGrab();
-        sceneRef.current?.undo();
-      } else if (key === "r") {
-        releaseObjectGrab();
-        sceneRef.current?.resetView();
-      } else if (key === "[" || key === "]") {
-        const direction = key === "]" ? 1 : -1;
-        selectColor(
-          (colorIndexRef.current + direction + AIRLOOM_COLORS.length) %
-            AIRLOOM_COLORS.length,
-        );
-      } else if (key === "," || key === ".") {
-        const direction = key === "." ? 0.045 : -0.045;
-        if (eraserEnabledRef.current) {
-          selectEraserThickness(
-            eraserThicknessRef.current + direction,
-          );
-        } else {
-          selectThickness(thicknessRef.current + direction);
-        }
-      } else if (key === "arrowleft" || key === "a") {
-        if (event.shiftKey) {
-          sceneRef.current?.orbit(-0.03, 0, 0);
-        } else {
-          sceneRef.current?.pan(-0.035, 0);
-        }
-      } else if (key === "arrowright" || key === "d") {
-        if (event.shiftKey) {
-          sceneRef.current?.orbit(0.03, 0, 0);
-        } else {
-          sceneRef.current?.pan(0.035, 0);
-        }
-      } else if (key === "arrowup" || key === "w") {
-        if (event.shiftKey) {
-          sceneRef.current?.orbit(0, -0.03, 0);
-        } else {
-          sceneRef.current?.pan(0, -0.035);
-        }
-      } else if (key === "arrowdown" || key === "s") {
-        if (event.shiftKey) {
-          sceneRef.current?.orbit(0, 0.03, 0);
-        } else {
-          sceneRef.current?.pan(0, 0.035);
-        }
-      } else if (key === "j") {
-        sceneRef.current?.orbit(-0.03, 0, 0);
-      } else if (key === "l") {
-        sceneRef.current?.orbit(0.03, 0, 0);
-      } else if (key === "i") {
-        sceneRef.current?.orbit(0, -0.03, 0);
-      } else if (key === "k") {
-        sceneRef.current?.orbit(0, 0.03, 0);
-      } else if (key === "pageup" || key === "+") {
-        sceneRef.current?.orbit(0, 0, 0.022);
-      } else if (key === "pagedown" || key === "-") {
-        sceneRef.current?.orbit(0, 0, -0.022);
-      } else if (key === "?" || key === "h") {
-        setHelpOpen((value) => !value);
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && key === "z") {
+        event.preventDefault();
+        undoArtwork();
       } else if (event.key === "Escape") {
         releaseObjectGrab();
         if (menuOpenRef.current) toggleMenu();
-      } else {
-        handled = false;
       }
-
-      if (handled) event.preventDefault();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [
     demoMode,
     releaseObjectGrab,
-    selectColor,
-    selectEraserThickness,
-    selectThickness,
-    toggleEraser,
     toggleMenu,
+    undoArtwork,
   ]);
+
+  useEffect(() => {
+    const finishSideViewPointer = () => {
+      if (sideViewPointerRef.current) releaseSideViewOrbit();
+    };
+    window.addEventListener("pointerup", finishSideViewPointer);
+    window.addEventListener("pointercancel", finishSideViewPointer);
+    window.addEventListener("blur", finishSideViewPointer);
+    return () => {
+      window.removeEventListener("pointerup", finishSideViewPointer);
+      window.removeEventListener("pointercancel", finishSideViewPointer);
+      window.removeEventListener("blur", finishSideViewPointer);
+    };
+  }, [releaseSideViewOrbit]);
 
   useEffect(() => {
     if (demoMode) return;
@@ -556,9 +542,15 @@ export function AirloomStudio() {
     pointerNavigationRef.current = null;
     pointerPressRef.current = null;
     sceneRef.current?.endStroke();
+    resetSideViewControl();
     releaseObjectGrab();
     hideHoverCursor();
-  }, [demoMode, hideHoverCursor, releaseObjectGrab]);
+  }, [
+    demoMode,
+    hideHoverCursor,
+    releaseObjectGrab,
+    resetSideViewControl,
+  ]);
 
   const applyToolAtPoint = useCallback((point: Parameters<AirScene["addPoint"]>[0]) => {
     if (eraserEnabledRef.current) {
@@ -656,15 +648,18 @@ export function AirloomStudio() {
       }
       if (detectClap(hands, timestamp)) {
         sceneRef.current?.endStroke();
+        releaseSideViewOrbit();
         releaseObjectGrab();
         hideHoverCursor();
         return;
       }
       if (hands.length !== 1) {
         sceneRef.current?.endStroke();
+        releaseSideViewOrbit();
         releaseObjectGrab();
         hideHoverCursor();
         previousControlRef.current = null;
+        undoSwipeRef.current = null;
         return;
       }
       const landmarks = hands[0];
@@ -735,6 +730,80 @@ export function AirloomStudio() {
           (result.grabPoint.y - filteredGrabRef.current.y) * grabBlend;
         filteredGrabRef.current.z +=
           (result.grabPoint.z - filteredGrabRef.current.z) * grabDepthBlend;
+      }
+
+      if (result.sideViewControl && !menuOpenRef.current) {
+        sceneRef.current?.endStroke();
+        releaseObjectGrab();
+        hideHoverCursor();
+        depthCalibrationRef.current = null;
+        previousControlRef.current = null;
+        undoSwipeRef.current = null;
+
+        const screenX = 1 - filteredTip.x;
+        const previousSideView = sideViewControlRef.current;
+        if (!sideViewOrbitActiveRef.current) {
+          sceneRef.current?.beginSideViewOrbit();
+          sideViewOrbitActiveRef.current = true;
+          setSideViewOrbiting(true);
+          setSideViewReturning(false);
+        } else if (previousSideView) {
+          sceneRef.current?.rotateSideView(
+            (screenX - previousSideView.x) * 15,
+          );
+        }
+        sideViewControlRef.current = {
+          x: screenX,
+          y: filteredTip.y,
+        };
+        updateGesture("other");
+        return;
+      }
+      releaseSideViewOrbit();
+
+      if (result.pose === "openPalm" && !menuOpenRef.current) {
+        hideHoverCursor();
+        const screenX = 1 - result.palm.x;
+        const previousSwipe = undoSwipeRef.current;
+        if (
+          !previousSwipe ||
+          timestamp - previousSwipe.timestamp > 120
+        ) {
+          undoSwipeRef.current = {
+            x: screenX,
+            startedAt: timestamp,
+            travel: 0,
+            timestamp,
+          };
+        } else {
+          const deltaX = screenX - previousSwipe.x;
+          const travel =
+            deltaX < 0
+              ? previousSwipe.travel - deltaX
+              : Math.max(0, previousSwipe.travel - deltaX * 0.5);
+          const elapsed = timestamp - previousSwipe.startedAt;
+          undoSwipeRef.current = {
+            x: screenX,
+            startedAt: previousSwipe.startedAt,
+            travel,
+            timestamp,
+          };
+          if (
+            travel > 0.16 &&
+            elapsed < 440 &&
+            timestamp - lastUndoAtRef.current > 850
+          ) {
+            lastUndoAtRef.current = timestamp;
+            undoSwipeRef.current = null;
+            sceneRef.current?.endStroke();
+            previousControlRef.current = null;
+            undoArtwork();
+            updateGesture("openPalm");
+            return;
+          }
+        }
+      } else {
+        undoSwipeRef.current = null;
       }
 
       if (
@@ -921,6 +990,7 @@ export function AirloomStudio() {
       confirmSnap,
       detectClap,
       hideHoverCursor,
+      releaseSideViewOrbit,
       releaseObjectGrab,
       selectColor,
       selectEraserThickness,
@@ -928,6 +998,7 @@ export function AirloomStudio() {
       showHoverCursor,
       updateGesture,
       updateSnapKind,
+      undoArtwork,
     ],
   );
 
@@ -1033,9 +1104,11 @@ export function AirloomStudio() {
     depthCalibrationRef.current = null;
     lastHandsSeenAtRef.current = -Infinity;
     lastHandSampleAtRef.current = -Infinity;
+    undoSwipeRef.current = null;
+    resetSideViewControl();
     releaseObjectGrab();
     hideHoverCursor();
-  }, [hideHoverCursor, releaseObjectGrab]);
+  }, [hideHoverCursor, releaseObjectGrab, resetSideViewControl]);
 
   useEffect(
     () => () => {
@@ -1065,6 +1138,8 @@ export function AirloomStudio() {
       filteredGrabRef.current = null;
       depthCalibrationRef.current = null;
       lastHandSampleAtRef.current = -Infinity;
+      undoSwipeRef.current = null;
+      releaseSideViewOrbit();
       releaseObjectGrab();
       hideHoverCursor();
       updateGesture("none");
@@ -1123,6 +1198,7 @@ export function AirloomStudio() {
   }, [
     hideHoverCursor,
     processHands,
+    releaseSideViewOrbit,
     releaseObjectGrab,
     sampleMicrophone,
     updateGesture,
@@ -1444,6 +1520,50 @@ export function AirloomStudio() {
     hideHoverCursor();
   };
 
+  const handleSideViewPointerDown = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    event.stopPropagation();
+    if (!demoMode || event.button !== 0 || !hasArtwork) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sideViewPointerRef.current = {
+      x: event.clientX,
+      pointerId: event.pointerId,
+    };
+    sideViewOrbitActiveRef.current = true;
+    sceneRef.current?.beginSideViewOrbit();
+    setSideViewOrbiting(true);
+    setSideViewReturning(false);
+  };
+
+  const handleSideViewPointerMove = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    event.stopPropagation();
+    const pointer = sideViewPointerRef.current;
+    if (!demoMode || !pointer || pointer.pointerId !== event.pointerId) {
+      return;
+    }
+    const width = Math.max(1, event.currentTarget.clientWidth);
+    sceneRef.current?.rotateSideView(
+      ((event.clientX - pointer.x) / width) * 15,
+    );
+    pointer.x = event.clientX;
+  };
+
+  const handleSideViewPointerUp = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    event.stopPropagation();
+    const pointer = sideViewPointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    releaseSideViewOrbit();
+  };
+
   const exportArtwork = async () => {
     const stage = stageRef.current;
     const sceneCanvas = sceneRef.current?.getCanvas();
@@ -1515,14 +1635,24 @@ export function AirloomStudio() {
           aria-hidden="true"
         />
         <aside
-          className={`side-view-inset ${hasArtwork ? "is-visible" : ""}`}
+          className={`side-view-inset ${hasArtwork ? "is-visible" : ""} ${sideViewOrbiting ? "is-orbiting" : ""}`}
           aria-label="Right side view, locked ninety degrees from the main view"
-          onPointerDown={(event) => event.stopPropagation()}
+          onPointerDown={handleSideViewPointerDown}
+          onPointerMove={handleSideViewPointerMove}
+          onPointerUp={handleSideViewPointerUp}
+          onPointerCancel={handleSideViewPointerUp}
+          onLostPointerCapture={() => releaseSideViewOrbit()}
         >
           <header>
             <div>
               <span>SIDE VIEW</span>
-              <strong>RIGHT +90°</strong>
+              <strong>
+                {sideViewOrbiting
+                  ? "FINGER ORBIT"
+                  : sideViewReturning
+                    ? "SNAPPING +90°"
+                    : "RIGHT +90°"}
+              </strong>
             </div>
             <i />
           </header>
@@ -1561,6 +1691,10 @@ export function AirloomStudio() {
             ? "Waiting for camera permission"
             : cameraState === "calibrating"
               ? "Loading hand tracking"
+              : sideViewOrbiting
+                ? "Turning side view"
+                : sideViewReturning
+                  ? "Side view returning"
               : demoMode
                 ? eraserEnabled
                   ? "Mouse eraser"
@@ -1804,16 +1938,14 @@ export function AirloomStudio() {
           aria-disabled={!demoMode}
         >
           <button
-            onClick={() => {
-              releaseObjectGrab();
-              sceneRef.current?.undo();
-            }}
+            onClick={undoArtwork}
           >
             Undo
           </button>
           <button
             onClick={() => {
               releaseObjectGrab();
+              resetSideViewControl();
               sceneRef.current?.resetView();
             }}
           >
@@ -1849,27 +1981,28 @@ export function AirloomStudio() {
             <header>
               <div>
                 <span>CONTROL MAP</span>
-                <strong>HAND · MOUSE / TRACKPAD · KEYBOARD</strong>
+                <strong>HAND · KEYBOARD + MOUSE</strong>
               </div>
-              <kbd>?</kbd>
+              <small>CLICK ? TO CLOSE</small>
             </header>
             {[
-              ["HOVER", "Thumb + index apart", "Mouse hover", "-"],
-              ["DRAW", "Thumb + index pinch", "Left-drag", "B = brush"],
-              ["PAN", "Two fingers", "Two-finger swipe / middle-drag", "Arrows / WASD"],
-              ["ORBIT", "Three fingers", "⌥ or ⇧ + swipe / right-drag", "⇧ + arrows / IJKL"],
-              ["ZOOM", "Three fingers in / out", "Trackpad pinch", "PgUp / PgDn"],
-              ["PALETTE", "Snap + sound", "Click side tab", "M"],
-              ["COLOR", "Fist + move", "Click a swatch", "[ / ]"],
-              ["SIZE", "Open palm + move", "Drag the slider", ", / ."],
-              ["ERASER", "Clap + sound", "Double-click canvas", "E / B"],
-              ["MOVE", "Five fingertips", "⇧ + drag · wheel for depth", "Shift + mouse"],
-            ].map(([action, hand, pointer, keyboard]) => (
+              ["HOVER", "Thumb + index apart", "Mouse hover"],
+              ["DRAW", "Thumb + index pinch", "Left-drag"],
+              ["PAN", "Two fingers", "Two-finger swipe or middle-drag"],
+              ["ORBIT", "Three fingers", "Option/Shift + swipe or right-drag"],
+              ["ZOOM", "Three fingers in/out", "Trackpad pinch"],
+              ["SIDE VIEW", "Index up + move", "Drag the side viewer"],
+              ["PALETTE", "Snap + sound", "Click the side tab"],
+              ["COLOR", "Fist + move", "Click a swatch"],
+              ["SIZE", "Open palm + move", "Drag the slider"],
+              ["ERASER", "Clap + sound", "Double-click or click Eraser"],
+              ["MOVE", "Five fingertips", "Shift + drag, wheel for depth"],
+              ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo"],
+            ].map(([action, hand, combined]) => (
               <div className="gesture-guide-row" key={action}>
                 <span>{action}</span>
                 <b>{hand}</b>
-                <strong>{pointer}</strong>
-                <kbd>{keyboard}</kbd>
+                <strong>{combined}</strong>
               </div>
             ))}
           </aside>
@@ -1877,12 +2010,12 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "Gesture mode active · Exit camera to use mouse or keyboard"
+            ? "Gesture mode active · Exit camera to use keyboard + mouse"
             : cameraState === "calibrating"
-              ? "Loading hand tracking · Mouse and keyboard locked"
+              ? "Loading hand tracking · Keyboard + mouse locked"
               : cameraState === "requesting"
-                ? "Requesting camera access · Mouse and keyboard locked"
-                : "Left-drag to draw · Double-click toggles eraser · Press ? for every control"}
+                ? "Requesting camera access · Keyboard + mouse locked"
+                : "Left-drag to draw · Double-click toggles eraser · Click ? for every control"}
         </p>
       </section>
     </main>

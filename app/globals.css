@@ -215,6 +215,16 @@ button {
   transform: translateY(0) scale(1);
 }
 
+.white-workspace.mouse-mode .side-view-inset.is-visible {
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.white-workspace.mouse-mode .side-view-inset.is-orbiting {
+  cursor: grabbing;
+}
+
 .side-view-inset header,
 .side-view-inset footer {
   display: flex;
@@ -1053,7 +1063,8 @@ button {
 }
 
 .gesture-guide > header span,
-.gesture-guide > header strong {
+.gesture-guide > header strong,
+.gesture-guide > header small {
   font-family: var(--font-geist-mono), monospace;
 }
 
@@ -1068,9 +1079,15 @@ button {
   letter-spacing: 0.08em;
 }
 
+.gesture-guide > header small {
+  color: #a9a9a3;
+  font-size: 7px;
+  letter-spacing: 0.08em;
+}
+
 .gesture-guide-row {
   display: grid;
-  grid-template-columns: 72px 1.1fr 1.5fr 0.85fr;
+  grid-template-columns: 72px 1.15fr 1.85fr;
   align-items: center;
   min-height: 31px;
   padding: 0 14px;
@@ -1084,8 +1101,7 @@ button {
 
 .gesture-guide-row span,
 .gesture-guide-row b,
-.gesture-guide-row strong,
-.gesture-guide kbd {
+.gesture-guide-row strong {
   font-family: var(--font-geist-mono), monospace;
   font-size: 8px;
 }
@@ -1102,25 +1118,6 @@ button {
 
 .gesture-guide-row strong {
   color: #454541;
-}
-
-.gesture-guide kbd {
-  justify-self: start;
-  padding: 3px 6px;
-  border: 1px solid #c8c8c2;
-  border-radius: 5px;
-  background: #fff;
-  box-shadow: 0 1px 0 #d8d8d2;
-  color: #30302d;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.gesture-guide > header kbd {
-  border-color: #555;
-  background: #242424;
-  box-shadow: none;
-  color: #fff;
 }
 
 .gesture-guide-row:first-of-type span {
@@ -1200,8 +1197,7 @@ button {
     padding: 8px 12px;
   }
 
-  .gesture-guide-row strong,
-  .gesture-guide-row kbd {
+  .gesture-guide-row strong {
     grid-column: 2;
   }
 }

@@ -377,9 +377,16 @@ export class AirScene {
   private grabState?: GrabState;
   private lastArtworkPresence = false;
   private onArtworkPresenceChange?: (hasArtwork: boolean) => void;
+  private onSideViewReturnComplete?: () => void;
   private sideBoundsDirty = true;
+  private sideViewAngle = Math.PI / 2;
+  private sideViewAngularVelocity = 0;
+  private sideViewManipulating = false;
+  private sideViewReturning = false;
+  private sideViewCenter = new THREE.Vector3();
   private lastSideRenderAt = -Infinity;
   private lastSideCameraUpdateAt = -Infinity;
+  private lastFrameAt = 0;
   private frame = 0;
   private width = 1;
   private height = 1;
@@ -388,8 +395,10 @@ export class AirScene {
     canvas: HTMLCanvasElement,
     sideCanvas: HTMLCanvasElement,
     onArtworkPresenceChange?: (hasArtwork: boolean) => void,
+    onSideViewReturnComplete?: () => void,
   ) {
     this.onArtworkPresenceChange = onArtworkPresenceChange;
+    this.onSideViewReturnComplete = onSideViewReturnComplete;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
@@ -418,6 +427,11 @@ export class AirScene {
 
     const loop = (timestamp = 0) => {
       this.frame = window.requestAnimationFrame(loop);
+      const elapsedSeconds = this.lastFrameAt
+        ? THREE.MathUtils.clamp((timestamp - this.lastFrameAt) / 1000, 1 / 120, 0.05)
+        : 1 / 60;
+      this.lastFrameAt = timestamp;
+      const sideViewIsMoving = this.updateSideViewSpring(elapsedSeconds);
       const viewIsMoving =
         this.artwork.position.distanceToSquared(this.targetPosition) > 0.000001 ||
         Math.abs(this.artwork.rotation.x - this.targetRotation.x) > 0.0001 ||
@@ -435,9 +449,10 @@ export class AirScene {
       );
       this.renderer.render(this.scene, this.camera);
       if (viewIsMoving) this.sideBoundsDirty = true;
+      if (sideViewIsMoving) this.updateSideCameraPose();
       if (
         this.strokes.length > 0 &&
-        timestamp - this.lastSideRenderAt >= 42
+        timestamp - this.lastSideRenderAt >= (sideViewIsMoving ? 16 : 42)
       ) {
         if (
           this.sideBoundsDirty &&
@@ -480,6 +495,43 @@ export class AirScene {
     );
   }
 
+  private updateSideViewSpring(elapsedSeconds: number) {
+    if (this.sideViewManipulating) return true;
+    if (!this.sideViewReturning) return false;
+
+    const restingAngle = Math.PI / 2;
+    const displacement = Math.atan2(
+      Math.sin(this.sideViewAngle - restingAngle),
+      Math.cos(this.sideViewAngle - restingAngle),
+    );
+    const acceleration =
+      -displacement * 300 - this.sideViewAngularVelocity * 22;
+    this.sideViewAngularVelocity += acceleration * elapsedSeconds;
+    this.sideViewAngle += this.sideViewAngularVelocity * elapsedSeconds;
+
+    if (
+      Math.abs(displacement) < 0.009 &&
+      Math.abs(this.sideViewAngularVelocity) < 0.08
+    ) {
+      this.sideViewAngle = restingAngle;
+      this.sideViewAngularVelocity = 0;
+      this.sideViewReturning = false;
+      this.onSideViewReturnComplete?.();
+      return false;
+    }
+    return true;
+  }
+
+  private updateSideCameraPose() {
+    const distance = 12;
+    this.sideCamera.position.set(
+      this.sideViewCenter.x + Math.sin(this.sideViewAngle) * distance,
+      this.sideViewCenter.y,
+      this.sideViewCenter.z + Math.cos(this.sideViewAngle) * distance,
+    );
+    this.sideCamera.lookAt(this.sideViewCenter);
+  }
+
   private updateSideCamera() {
     this.artwork.updateMatrixWorld(true);
     const bounds = new THREE.Box3().makeEmpty();
@@ -495,7 +547,7 @@ export class AirScene {
     if (bounds.isEmpty()) return;
     bounds.expandByScalar(padding);
 
-    const center = bounds.getCenter(new THREE.Vector3());
+    const center = bounds.getCenter(this.sideViewCenter);
     const size = bounds.getSize(new THREE.Vector3());
     const canvas = this.sideRenderer.domElement;
     const aspect =
@@ -503,7 +555,7 @@ export class AirScene {
     const halfHeight = Math.max(
       0.8,
       size.y * 0.64,
-      (size.z / Math.max(0.5, aspect)) * 0.64,
+      (Math.hypot(size.x, size.z) / Math.max(0.5, aspect)) * 0.64,
     );
     const halfWidth = halfHeight * aspect;
 
@@ -511,8 +563,7 @@ export class AirScene {
     this.sideCamera.right = halfWidth;
     this.sideCamera.top = halfHeight;
     this.sideCamera.bottom = -halfHeight;
-    this.sideCamera.position.set(center.x + 12, center.y, center.z);
-    this.sideCamera.lookAt(center);
+    this.updateSideCameraPose();
     this.sideCamera.updateProjectionMatrix();
   }
 
@@ -852,6 +903,38 @@ export class AirScene {
     this.sideBoundsDirty = true;
   }
 
+  beginSideViewOrbit() {
+    this.sideViewManipulating = true;
+    this.sideViewReturning = false;
+    this.sideViewAngularVelocity = 0;
+  }
+
+  rotateSideView(deltaRadians: number) {
+    if (!this.sideViewManipulating) this.beginSideViewOrbit();
+    const nextAngle = this.sideViewAngle + deltaRadians;
+    this.sideViewAngle = Math.atan2(
+      Math.sin(nextAngle),
+      Math.cos(nextAngle),
+    );
+    this.updateSideCameraPose();
+  }
+
+  endSideViewOrbit() {
+    if (!this.sideViewManipulating) return;
+    this.sideViewManipulating = false;
+    this.sideViewReturning = true;
+    this.sideViewAngularVelocity = 0;
+  }
+
+  resetSideView() {
+    this.sideViewManipulating = false;
+    this.sideViewReturning = false;
+    this.sideViewAngle = Math.PI / 2;
+    this.sideViewAngularVelocity = 0;
+    this.updateSideCameraPose();
+    this.onSideViewReturnComplete?.();
+  }
+
   undo() {
     this.endObjectGrab();
     this.endStroke();
@@ -878,6 +961,7 @@ export class AirScene {
     this.targetRotation.set(0, 0);
     this.artwork.position.set(0, 0, 0);
     this.artwork.rotation.set(0, 0, 0);
+    this.resetSideView();
     this.sideBoundsDirty = true;
   }
 
@@ -889,6 +973,7 @@ export class AirScene {
   dispose() {
     window.cancelAnimationFrame(this.frame);
     this.onArtworkPresenceChange = undefined;
+    this.onSideViewReturnComplete = undefined;
     this.clear();
     this.renderer.dispose();
     this.sideRenderer.dispose();

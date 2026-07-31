@@ -129,7 +129,17 @@ function classifyPose(landmarks: Landmark[]) {
   if (fingers[0] && fingers[1] && fingers[2] && !fingers[3])
     pose = "orbit3d";
 
-  return { pose, fingerCount };
+  const indexVectorX = landmarks[8].x - landmarks[6].x;
+  const indexVectorY = landmarks[8].y - landmarks[6].y;
+  const indexPointingUp =
+    fingers[0] &&
+    !fingers[1] &&
+    !fingers[2] &&
+    !fingers[3] &&
+    indexVectorY < -0.025 &&
+    Math.abs(indexVectorX) < Math.abs(indexVectorY) * 0.85;
+
+  return { pose, fingerCount, indexPointingUp };
 }
 
 export class GestureEngine {
@@ -150,7 +160,11 @@ export class GestureEngine {
   private grabIntentUntil = 0;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
-    const { pose: rawPose, fingerCount } = classifyPose(landmarks);
+    const {
+      pose: rawPose,
+      fingerCount,
+      indexPointingUp,
+    } = classifyPose(landmarks);
     const grab = fingertipsTogether(landmarks);
     const fingertipsConverging =
       Number.isFinite(this.previousFingerSpread) &&
@@ -268,10 +282,16 @@ export class GestureEngine {
     }
 
     this.previousMiddleTip = { ...middleTip };
+    const sideViewControl =
+      indexPointingUp &&
+      !this.drawingPinch &&
+      !this.objectGrab &&
+      !grabIntent;
     const brushHover =
       !this.drawingPinch &&
       !this.objectGrab &&
       !grabIntent &&
+      !sideViewControl &&
       thumbIndexRatio > 0.68 &&
       rawPose !== "pan2d" &&
       rawPose !== "orbit3d" &&
@@ -282,6 +302,7 @@ export class GestureEngine {
       drawingPinch: this.drawingPinch,
       objectGrab: this.objectGrab,
       objectGrabIntent: grabIntent || this.objectGrab,
+      sideViewControl,
       brushHover,
       snap,
       snapPose,
