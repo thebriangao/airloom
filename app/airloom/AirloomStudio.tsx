@@ -1,6 +1,9 @@
 "use client";
 
-import type { HandLandmarker } from "@mediapipe/tasks-vision";
+import type {
+  FaceLandmarker,
+  HandLandmarker,
+} from "@mediapipe/tasks-vision";
 import {
   useCallback,
   useEffect,
@@ -12,11 +15,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AirScene, type SnapKind } from "./AirScene";
-import { SuddenSoundDetector } from "./audioGesture";
-import {
-  countExtendedFingers,
-  GestureEngine,
-} from "./gestureEngine";
+import { GestureEngine } from "./gestureEngine";
 import {
   AIRLOOM_COLORS,
   eraserRadiusFromThickness,
@@ -33,6 +32,9 @@ type CameraState =
   | "calibrating"
   | "active"
   | "error";
+type VisionFileset = Parameters<
+  typeof HandLandmarker.createFromOptions
+>[0];
 type SoundKind =
   | "open"
   | "close"
@@ -59,6 +61,18 @@ const gridPosition = (value: number) => clamp((value - 0.12) / 0.76);
 const stableDelta = (value: number, deadZone: number) =>
   Math.abs(value) < deadZone ? 0 : value;
 const HAND_TRACKING_GRACE_MS = 350;
+const HEAD_HAND_FREE_MS = 260;
+const FACE_SAMPLE_INTERVAL_MS = 55;
+const HEAD_TURN_THRESHOLD = 0.115;
+const HEAD_TURN_VELOCITY = 0.34;
+const HEAD_NEUTRAL_THRESHOLD = 0.045;
+const HEAD_REARM_MS = 160;
+const HEAD_TURN_COOLDOWN_MS = 700;
+const WRIST_ROLL_START_ORIENTATION = 0.48;
+const WRIST_ROLL_EDGE_ORIENTATION = 0.2;
+const WRIST_ROLL_END_ORIENTATION = 0.42;
+const WRIST_ROLL_MAX_MS = 520;
+const WRIST_ROLL_COOLDOWN_MS = 900;
 
 const responsiveBlend = (
   distance: number,
@@ -108,6 +122,62 @@ const palmCenter = (landmarks: Landmark[]) => {
   );
 };
 
+const palmFacingScore = (landmarks: Landmark[]) => {
+  const wrist = landmarks[0];
+  const indexBase = landmarks[5];
+  const pinkyBase = landmarks[17];
+  if (!wrist || !indexBase || !pinkyBase) return 0;
+  const indexVector = {
+    x: indexBase.x - wrist.x,
+    y: indexBase.y - wrist.y,
+    z: indexBase.z - wrist.z,
+  };
+  const pinkyVector = {
+    x: pinkyBase.x - wrist.x,
+    y: pinkyBase.y - wrist.y,
+    z: pinkyBase.z - wrist.z,
+  };
+  const normal = {
+    x: indexVector.y * pinkyVector.z - indexVector.z * pinkyVector.y,
+    y: indexVector.z * pinkyVector.x - indexVector.x * pinkyVector.z,
+    z: indexVector.x * pinkyVector.y - indexVector.y * pinkyVector.x,
+  };
+  const magnitude = Math.hypot(normal.x, normal.y, normal.z);
+  return magnitude > 0.00001 ? normal.z / magnitude : 0;
+};
+
+const mirroredFaceYaw = (landmarks: Landmark[]) => {
+  const nose = landmarks[1];
+  const firstCheek = landmarks[234];
+  const secondCheek = landmarks[454];
+  if (!nose || !firstCheek || !secondCheek) return null;
+  const mirroredNoseX = 1 - nose.x;
+  const mirroredFirstX = 1 - firstCheek.x;
+  const mirroredSecondX = 1 - secondCheek.x;
+  const faceWidth = Math.abs(mirroredFirstX - mirroredSecondX);
+  if (faceWidth < 0.04) return null;
+  const faceCenter = (mirroredFirstX + mirroredSecondX) / 2;
+  return (mirroredNoseX - faceCenter) / faceWidth;
+};
+
+type WristRollState = {
+  startOrientation: number;
+  startAt: number;
+  previousOrientation: number;
+  previousAt: number;
+  startPalm: { x: number; y: number };
+  active: boolean;
+  crossedEdge: boolean;
+};
+
+type HeadTurnState = {
+  neutralYaw: number;
+  previousYaw: number;
+  previousAt: number;
+  neutralSince: number;
+  armed: boolean;
+};
+
 export function AirloomStudio() {
   const stageRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -117,28 +187,21 @@ export function AirloomStudio() {
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const handLandmarkerPromiseRef = useRef<Promise<HandLandmarker> | null>(null);
+  const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const faceLandmarkerPromiseRef = useRef<Promise<FaceLandmarker> | null>(null);
+  const visionFilesetPromiseRef = useRef<Promise<VisionFileset> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const microphoneSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const microphoneAnalyserRef = useRef<AnalyserNode | null>(null);
-  const microphoneSamplesRef = useRef(new Float32Array(512));
-  const suddenSoundDetectorRef = useRef(new SuddenSoundDetector());
-  const lastAudioTransientRef = useRef(-Infinity);
-  const lastVisualSnapRef = useRef(-Infinity);
-  const lastConfirmedSnapRef = useRef(-Infinity);
-  const lastVisualClapRef = useRef(-Infinity);
-  const lastConfirmedClapRef = useRef(-Infinity);
-  const clapContactRef = useRef(false);
-  const clapMotionRef = useRef<{
-    separation: number;
-    timestamp: number;
-    approachAt: number;
-  } | null>(null);
   const trackingFrameRef = useRef(0);
-  const audioAnimationRef = useRef(0);
   const trackingActiveRef = useRef(false);
   const lastVideoTimeRef = useRef(-1);
   const lastHandsSeenAtRef = useRef(-Infinity);
+  const noHandsSinceRef = useRef(-Infinity);
+  const lastFaceSampleAtRef = useRef(-Infinity);
+  const headTurnRef = useRef<HeadTurnState | null>(null);
+  const lastHeadTurnAtRef = useRef(-Infinity);
+  const wristRollRef = useRef<WristRollState | null>(null);
+  const lastWristRollAtRef = useRef(-Infinity);
   const lastHandSampleAtRef = useRef(-Infinity);
   const gestureEngineRef = useRef(new GestureEngine());
   const gestureRef = useRef<HandPose>("none");
@@ -400,58 +463,198 @@ export function AirloomStudio() {
     playSound(next ? "open" : "close");
   }, [hideHoverCursor, playSound, releaseObjectGrab]);
 
-  const confirmSnap = useCallback(
-    (timestamp: number) => {
-      const paired =
-        Math.abs(timestamp - lastAudioTransientRef.current) <= 560 &&
-        Math.abs(timestamp - lastVisualSnapRef.current) <= 560;
-      const cooledDown = timestamp - lastConfirmedSnapRef.current > 950;
-      const clapIsNotWinning =
-        Math.abs(timestamp - lastVisualClapRef.current) > 650 &&
-        timestamp - lastConfirmedClapRef.current > 650;
-      if (!paired || !cooledDown || !clapIsNotWinning) return false;
-      lastConfirmedSnapRef.current = timestamp;
-      lastAudioTransientRef.current = -Infinity;
-      lastVisualSnapRef.current = -Infinity;
-      toggleMenu();
-      return true;
-    },
-    [toggleMenu],
-  );
+  const detectWristRoll = useCallback(
+    (
+      landmarks: Landmark[],
+      result: GestureResult,
+      timestamp: number,
+    ): "idle" | "tracking" | "triggered" => {
+      const orientation = palmFacingScore(landmarks);
+      const center = palmCenter(landmarks);
+      let state = wristRollRef.current;
 
-  const confirmClap = useCallback(
-    (timestamp: number) => {
-      const paired =
-        Math.abs(timestamp - lastAudioTransientRef.current) <= 650 &&
-        Math.abs(timestamp - lastVisualClapRef.current) <= 650;
-      const cooledDown = timestamp - lastConfirmedClapRef.current > 1150;
-      if (!paired || !cooledDown) return false;
-      lastConfirmedClapRef.current = timestamp;
-      lastAudioTransientRef.current = -Infinity;
-      lastVisualClapRef.current = -Infinity;
-      lastVisualSnapRef.current = -Infinity;
-      toggleEraser();
-      return true;
+      if (result.drawingPinch || result.sideViewControl) {
+        wristRollRef.current = null;
+        return "idle";
+      }
+
+      if (!state) {
+        if (
+          result.fingerCount >= 2 &&
+          Math.abs(orientation) >= WRIST_ROLL_START_ORIENTATION
+        ) {
+          wristRollRef.current = {
+            startOrientation: orientation,
+            startAt: timestamp,
+            previousOrientation: orientation,
+            previousAt: timestamp,
+            startPalm: center,
+            active: false,
+            crossedEdge: false,
+          };
+        }
+        return "idle";
+      }
+
+      const frameElapsed = Math.max(8, timestamp - state.previousAt);
+      const turningTowardEdge =
+        Math.sign(orientation) === Math.sign(state.previousOrientation) &&
+        Math.abs(state.previousOrientation) - Math.abs(orientation) > 0.065 &&
+        frameElapsed < 120;
+      const skippedAcrossEdge =
+        Math.sign(orientation) === -Math.sign(state.previousOrientation) &&
+        Math.abs(state.previousOrientation) >= WRIST_ROLL_START_ORIENTATION &&
+        Math.abs(orientation) >= WRIST_ROLL_END_ORIENTATION &&
+        frameElapsed < 120;
+
+      if (!state.active) {
+        if (turningTowardEdge || skippedAcrossEdge) {
+          state.active = true;
+          state.startOrientation = state.previousOrientation;
+          state.startAt = state.previousAt;
+          state.startPalm = center;
+          state.crossedEdge = skippedAcrossEdge;
+        } else if (
+          result.fingerCount >= 2 &&
+          Math.abs(orientation) >= WRIST_ROLL_START_ORIENTATION
+        ) {
+          state.startOrientation = orientation;
+          state.startAt = timestamp;
+          state.startPalm = center;
+        } else if (timestamp - state.startAt > 180) {
+          wristRollRef.current = null;
+          return "idle";
+        }
+        state.previousOrientation = orientation;
+        state.previousAt = timestamp;
+        return state.active ? "tracking" : "idle";
+      }
+
+      const elapsed = timestamp - state.startAt;
+      const palmTravel = Math.hypot(
+        center.x - state.startPalm.x,
+        center.y - state.startPalm.y,
+      );
+      if (
+        Math.abs(orientation) <= WRIST_ROLL_EDGE_ORIENTATION ||
+        Math.sign(orientation) === -Math.sign(state.previousOrientation)
+      ) {
+        state.crossedEdge = true;
+      }
+
+      const finishedOpposite =
+        state.crossedEdge &&
+        Math.sign(orientation) === -Math.sign(state.startOrientation) &&
+        Math.abs(orientation) >= WRIST_ROLL_END_ORIENTATION;
+      const cooledDown =
+        timestamp - lastWristRollAtRef.current > WRIST_ROLL_COOLDOWN_MS;
+      if (
+        finishedOpposite &&
+        elapsed >= 45 &&
+        elapsed <= WRIST_ROLL_MAX_MS &&
+        palmTravel < 0.26 &&
+        cooledDown
+      ) {
+        lastWristRollAtRef.current = timestamp;
+        wristRollRef.current = null;
+        toggleEraser();
+        return "triggered";
+      }
+
+      if (elapsed > WRIST_ROLL_MAX_MS || palmTravel >= 0.26) {
+        wristRollRef.current = null;
+        return "idle";
+      }
+
+      state.previousOrientation = orientation;
+      state.previousAt = timestamp;
+      return "tracking";
     },
     [toggleEraser],
   );
 
-  const sampleMicrophone = useCallback(
-    (timestamp: number) => {
-      const analyser = microphoneAnalyserRef.current;
-      if (!analyser) return;
-      const samples = microphoneSamplesRef.current;
-      analyser.getFloatTimeDomainData(samples);
-      const { transient } = suddenSoundDetectorRef.current.update(
-        samples,
-        timestamp,
-      );
-      if (!transient) return;
+  const processHeadTurn = useCallback(
+    (video: HTMLVideoElement, timestamp: number) => {
+      const landmarker = faceLandmarkerRef.current;
+      if (
+        !landmarker ||
+        timestamp - lastFaceSampleAtRef.current < FACE_SAMPLE_INTERVAL_MS
+      ) {
+        return;
+      }
+      lastFaceSampleAtRef.current = timestamp;
+      const faceResult = landmarker.detectForVideo(video, timestamp);
+      const landmarks = faceResult.faceLandmarks[0] as Landmark[] | undefined;
+      if (!landmarks) {
+        headTurnRef.current = null;
+        return;
+      }
+      const yaw = mirroredFaceYaw(landmarks);
+      if (yaw === null) {
+        headTurnRef.current = null;
+        return;
+      }
 
-      lastAudioTransientRef.current = timestamp;
-      if (!confirmClap(timestamp)) confirmSnap(timestamp);
+      let state = headTurnRef.current;
+      if (!state) {
+        headTurnRef.current = {
+          neutralYaw: yaw,
+          previousYaw: yaw,
+          previousAt: timestamp,
+          neutralSince: timestamp,
+          armed: false,
+        };
+        return;
+      }
+
+      const elapsedSeconds = Math.max(
+        0.008,
+        (timestamp - state.previousAt) / 1000,
+      );
+      const velocity = (yaw - state.previousYaw) / elapsedSeconds;
+      const delta = yaw - state.neutralYaw;
+      const nearNeutral = Math.abs(delta) <= HEAD_NEUTRAL_THRESHOLD;
+      const cooledDown =
+        timestamp - lastHeadTurnAtRef.current > HEAD_TURN_COOLDOWN_MS;
+
+      if (!state.armed) {
+        if (nearNeutral) {
+          if (state.neutralSince === 0) state.neutralSince = timestamp;
+          state.neutralYaw += (yaw - state.neutralYaw) * 0.08;
+          if (
+            cooledDown &&
+            timestamp - state.neutralSince >= HEAD_REARM_MS
+          ) {
+            state.armed = true;
+          }
+        } else {
+          state.neutralSince = 0;
+        }
+      } else if (nearNeutral && Math.abs(velocity) < 0.2) {
+        state.neutralYaw += (yaw - state.neutralYaw) * 0.04;
+      }
+
+      const openJerk =
+        !menuOpenRef.current &&
+        state.armed &&
+        delta <= -HEAD_TURN_THRESHOLD &&
+        velocity <= -HEAD_TURN_VELOCITY;
+      const closeJerk =
+        menuOpenRef.current &&
+        state.armed &&
+        delta >= HEAD_TURN_THRESHOLD &&
+        velocity >= HEAD_TURN_VELOCITY;
+      if ((openJerk || closeJerk) && cooledDown) {
+        lastHeadTurnAtRef.current = timestamp;
+        state.armed = false;
+        state.neutralSince = 0;
+        toggleMenu();
+      }
+
+      state.previousYaw = yaw;
+      state.previousAt = timestamp;
     },
-    [confirmClap, confirmSnap],
+    [toggleMenu],
   );
 
   const updateGesture = useCallback((next: HandPose) => {
@@ -567,76 +770,6 @@ export function AirloomStudio() {
     );
   }, []);
 
-  const detectClap = useCallback(
-    (hands: Landmark[][], timestamp: number) => {
-      if (hands.length < 2) {
-        const recentApproach =
-          clapMotionRef.current &&
-          timestamp - clapMotionRef.current.approachAt < 430;
-        if (!recentApproach || clapContactRef.current) return false;
-        clapContactRef.current = true;
-        lastVisualClapRef.current = timestamp;
-        return confirmClap(timestamp);
-      }
-
-      const firstPalm = palmCenter(hands[0]);
-      const secondPalm = palmCenter(hands[1]);
-      const separation = Math.hypot(
-        firstPalm.x - secondPalm.x,
-        firstPalm.y - secondPalm.y,
-      );
-      const firstSpan = Math.hypot(
-        hands[0][5].x - hands[0][17].x,
-        hands[0][5].y - hands[0][17].y,
-      );
-      const secondSpan = Math.hypot(
-        hands[1][5].x - hands[1][17].x,
-        hands[1][5].y - hands[1][17].y,
-      );
-      const averageSpan = Math.max(0.04, (firstSpan + secondSpan) / 2);
-      const contactDistance = clamp(averageSpan * 1.55, 0.15, 0.25);
-      const handsLookOpen =
-        countExtendedFingers(hands[0]) >= 2 &&
-        countExtendedFingers(hands[1]) >= 2;
-      const previousMotion = clapMotionRef.current;
-      const elapsed = previousMotion
-        ? Math.max(16, timestamp - previousMotion.timestamp)
-        : 16;
-      const closingRate = previousMotion
-        ? ((previousMotion.separation - separation) / elapsed) * 1000
-        : 0;
-      const approaching =
-        handsLookOpen && separation < 0.46 && closingRate > 0.2;
-      const approachAt = approaching
-        ? timestamp
-        : previousMotion?.approachAt ?? -Infinity;
-
-      clapMotionRef.current = {
-        separation,
-        timestamp,
-        approachAt,
-      };
-
-      if (separation > Math.max(0.34, contactDistance * 1.65)) {
-        clapContactRef.current = false;
-      }
-      const recentApproach = timestamp - approachAt < 520;
-      if (
-        !handsLookOpen ||
-        !recentApproach ||
-        separation > contactDistance ||
-        clapContactRef.current
-      ) {
-        return false;
-      }
-
-      clapContactRef.current = true;
-      lastVisualClapRef.current = timestamp;
-      return confirmClap(timestamp);
-    },
-    [confirmClap],
-  );
-
   const processHands = useCallback(
     (hands: Landmark[][], timestamp: number) => {
       if (
@@ -644,13 +777,6 @@ export function AirloomStudio() {
         pointerObjectGrabRef.current ||
         pointerNavigationRef.current
       ) {
-        return;
-      }
-      if (detectClap(hands, timestamp)) {
-        sceneRef.current?.endStroke();
-        releaseSideViewOrbit();
-        releaseObjectGrab();
-        hideHoverCursor();
         return;
       }
       if (hands.length !== 1) {
@@ -665,6 +791,18 @@ export function AirloomStudio() {
       const landmarks = hands[0];
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
+      const wristRoll = detectWristRoll(landmarks, result, timestamp);
+      if (wristRoll !== "idle") {
+        gestureEngineRef.current.reset();
+        sceneRef.current?.endStroke();
+        releaseSideViewOrbit();
+        releaseObjectGrab();
+        hideHoverCursor();
+        previousControlRef.current = null;
+        undoSwipeRef.current = null;
+        updateGesture("other");
+        return;
+      }
       const elapsedSeconds = Number.isFinite(lastHandSampleAtRef.current)
         ? clamp(
             (timestamp - lastHandSampleAtRef.current) / 1000,
@@ -804,14 +942,6 @@ export function AirloomStudio() {
         }
       } else {
         undoSwipeRef.current = null;
-      }
-
-      if (
-        !result.objectGrabIntent &&
-        (result.snapPose || result.snap)
-      ) {
-        lastVisualSnapRef.current = timestamp;
-        if (confirmSnap(timestamp)) return;
       }
 
       const menuFist =
@@ -993,8 +1123,7 @@ export function AirloomStudio() {
     },
     [
       applyToolAtPoint,
-      confirmSnap,
-      detectClap,
+      detectWristRoll,
       hideHoverCursor,
       releaseSideViewOrbit,
       releaseObjectGrab,
@@ -1008,6 +1137,24 @@ export function AirloomStudio() {
     ],
   );
 
+  const prepareVisionFileset = useCallback(() => {
+    if (visionFilesetPromiseRef.current) {
+      return visionFilesetPromiseRef.current;
+    }
+    const promise = import("@mediapipe/tasks-vision")
+      .then(({ FilesetResolver }) =>
+        FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
+        ),
+      )
+      .catch((error) => {
+        visionFilesetPromiseRef.current = null;
+        throw error;
+      });
+    visionFilesetPromiseRef.current = promise;
+    return promise;
+  }, []);
+
   const prepareHandLandmarker = useCallback(() => {
     if (handLandmarkerRef.current) {
       return Promise.resolve(handLandmarkerRef.current);
@@ -1017,12 +1164,10 @@ export function AirloomStudio() {
     }
 
     const promise = (async () => {
-      const { FilesetResolver, HandLandmarker } = await import(
-        "@mediapipe/tasks-vision"
-      );
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
-      );
+      const [{ HandLandmarker }, vision] = await Promise.all([
+        import("@mediapipe/tasks-vision"),
+        prepareVisionFileset(),
+      ]);
       try {
         return await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
@@ -1059,56 +1204,85 @@ export function AirloomStudio() {
     );
     handLandmarkerPromiseRef.current = promise;
     return promise;
-  }, []);
+  }, [prepareVisionFileset]);
 
   useEffect(() => {
     void prepareHandLandmarker().catch(() => undefined);
   }, [prepareHandLandmarker]);
 
-  const setupMicrophone = useCallback(
-    (stream: MediaStream) => {
-      const context = primeAudio();
-      if (!context || stream.getAudioTracks().length === 0) {
-        throw new Error(
-          "Microphone access is required to confirm snaps and claps.",
-        );
+  const prepareFaceLandmarker = useCallback(() => {
+    if (faceLandmarkerRef.current) {
+      return Promise.resolve(faceLandmarkerRef.current);
+    }
+    if (faceLandmarkerPromiseRef.current) {
+      return faceLandmarkerPromiseRef.current;
+    }
+
+    const promise = (async () => {
+      const [{ FaceLandmarker }, vision] = await Promise.all([
+        import("@mediapipe/tasks-vision"),
+        prepareVisionFileset(),
+      ]);
+      const options = {
+        baseOptions: {
+          modelAssetPath:
+            "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+          delegate: "GPU" as const,
+        },
+        runningMode: "VIDEO" as const,
+        numFaces: 1,
+        minFaceDetectionConfidence: 0.52,
+        minFacePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+      };
+      try {
+        return await FaceLandmarker.createFromOptions(vision, options);
+      } catch {
+        return FaceLandmarker.createFromOptions(vision, {
+          ...options,
+          baseOptions: {
+            ...options.baseOptions,
+            delegate: "CPU",
+          },
+        });
       }
-      microphoneSourceRef.current?.disconnect();
-      microphoneAnalyserRef.current?.disconnect();
-      const source = context.createMediaStreamSource(stream);
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 512;
-      analyser.smoothingTimeConstant = 0;
-      source.connect(analyser);
-      microphoneSourceRef.current = source;
-      microphoneAnalyserRef.current = analyser;
-      suddenSoundDetectorRef.current.reset();
-      lastAudioTransientRef.current = -Infinity;
-    },
-    [primeAudio],
-  );
+    })().then(
+      (landmarker) => {
+        faceLandmarkerRef.current = landmarker;
+        return landmarker;
+      },
+      (error) => {
+        faceLandmarkerPromiseRef.current = null;
+        throw error;
+      },
+    );
+    faceLandmarkerPromiseRef.current = promise;
+    return promise;
+  }, [prepareVisionFileset]);
+
+  useEffect(() => {
+    void prepareFaceLandmarker().catch(() => undefined);
+  }, [prepareFaceLandmarker]);
 
   const stopCamera = useCallback(() => {
     trackingActiveRef.current = false;
     window.cancelAnimationFrame(trackingFrameRef.current);
-    window.cancelAnimationFrame(audioAnimationRef.current);
     videoRef.current?.cancelVideoFrameCallback?.(trackingFrameRef.current);
-    microphoneSourceRef.current?.disconnect();
-    microphoneAnalyserRef.current?.disconnect();
-    microphoneSourceRef.current = null;
-    microphoneAnalyserRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     gestureEngineRef.current.reset();
-    clapContactRef.current = false;
-    clapMotionRef.current = null;
-    suddenSoundDetectorRef.current.reset();
     previousControlRef.current = null;
     filteredTipRef.current = null;
     filteredGrabRef.current = null;
     depthCalibrationRef.current = null;
     lastHandsSeenAtRef.current = -Infinity;
+    noHandsSinceRef.current = -Infinity;
+    lastFaceSampleAtRef.current = -Infinity;
+    headTurnRef.current = null;
+    wristRollRef.current = null;
     lastHandSampleAtRef.current = -Infinity;
     undoSwipeRef.current = null;
     resetSideViewControl();
@@ -1122,6 +1296,10 @@ export function AirloomStudio() {
       handLandmarkerRef.current?.close();
       handLandmarkerRef.current = null;
       handLandmarkerPromiseRef.current = null;
+      faceLandmarkerRef.current?.close();
+      faceLandmarkerRef.current = null;
+      faceLandmarkerPromiseRef.current = null;
+      visionFilesetPromiseRef.current = null;
     },
     [stopCamera],
   );
@@ -1137,7 +1315,6 @@ export function AirloomStudio() {
         return;
       }
       gestureEngineRef.current.reset();
-      clapContactRef.current = false;
       sceneRef.current?.endStroke();
       previousControlRef.current = null;
       filteredTipRef.current = null;
@@ -1166,8 +1343,17 @@ export function AirloomStudio() {
         const hands = result.landmarks as Landmark[][];
         if (hands.length > 0) {
           lastHandsSeenAtRef.current = timestamp;
+          noHandsSinceRef.current = -Infinity;
+          headTurnRef.current = null;
           processHands(hands, timestamp);
         } else {
+          wristRollRef.current = null;
+          if (!Number.isFinite(noHandsSinceRef.current)) {
+            noHandsSinceRef.current = timestamp;
+          }
+          if (timestamp - noHandsSinceRef.current >= HEAD_HAND_FREE_MS) {
+            processHeadTurn(video, timestamp);
+          }
           handleMissingHands(timestamp);
         }
       }
@@ -1193,20 +1379,13 @@ export function AirloomStudio() {
       }
     };
 
-    const sampleAudio = (timestamp: number) => {
-      if (!trackingActiveRef.current) return;
-      sampleMicrophone(timestamp);
-      audioAnimationRef.current = window.requestAnimationFrame(sampleAudio);
-    };
-
     scheduleVideoFrame();
-    audioAnimationRef.current = window.requestAnimationFrame(sampleAudio);
   }, [
     hideHoverCursor,
+    processHeadTurn,
     processHands,
     releaseSideViewOrbit,
     releaseObjectGrab,
-    sampleMicrophone,
     updateGesture,
   ]);
 
@@ -1217,6 +1396,7 @@ export function AirloomStudio() {
     try {
       primeAudio();
       const landmarkerPromise = prepareHandLandmarker();
+      void prepareFaceLandmarker().catch(() => undefined);
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(
           "Camera access is unavailable here. Open Airloom in a current browser over HTTPS.",
@@ -1229,17 +1409,12 @@ export function AirloomStudio() {
           height: { ideal: 480 },
           frameRate: { ideal: 60 },
         },
-        audio: {
-          autoGainControl: true,
-          echoCancellation: true,
-          noiseSuppression: false,
-        },
+        audio: false,
       });
       streamRef.current = stream;
       if (!videoRef.current) throw new Error("Camera surface unavailable.");
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
-      setupMicrophone(stream);
       setCameraState("calibrating");
       await landmarkerPromise;
       if (streamRef.current !== stream) return;
@@ -1257,12 +1432,12 @@ export function AirloomStudio() {
           : "";
       setCameraError(
         errorName === "NotAllowedError"
-          ? "Camera or microphone access was blocked. Allow both in your browser's site settings, then try again."
+          ? "Camera access was blocked. Allow it in your browser's site settings, then try again."
           : errorName === "NotFoundError"
-            ? "No camera or microphone was found on this device."
+            ? "No camera was found on this device."
             : error instanceof Error
               ? error.message
-              : "Airloom could not start the camera and microphone.",
+              : "Airloom could not start the camera.",
       );
     }
   };
@@ -1747,7 +1922,7 @@ export function AirloomStudio() {
                 >
                   {cameraState === "error"
                     ? "Try again"
-                    : "Enable camera + mic"}
+                    : "Enable camera"}
                 </button>
                 {!demoMode && (
                   <button className="camera-text-button" onClick={useMouse}>
@@ -1762,7 +1937,7 @@ export function AirloomStudio() {
                 <div className="camera-label">
                   <span />
                   {cameraState === "active"
-                    ? "LIVE HAND + MIC"
+                    ? "LIVE HAND + FACE"
                     : "LOADING TRACKING"}
                 </div>
                 <button
@@ -2006,10 +2181,10 @@ export function AirloomStudio() {
               ["ORBIT", "Three fingers + move", "Right-drag or Option/Shift + swipe"],
               ["ZOOM", "Three fingers + hand in/out", "Trackpad pinch or Ctrl + wheel"],
               ["SIDE VIEW", "Index up + move; release springs back", "Drag viewer; release springs back"],
-              ["PALETTE", "Snap + sound", "Click side tab; Escape closes"],
+              ["PALETTE", "No hands; jerk head left to open, right to close", "Click side tab; Escape closes"],
               ["COLOR", "Fist + move inside palette", "Click a swatch"],
               ["TOOL SIZE", "Open palm + move inside palette", "Drag active tool slider"],
-              ["ERASER", "Clap + sound", "Double-click canvas or click Eraser"],
+              ["ERASER", "Quick palm-to-back wrist roll", "Double-click canvas or click Eraser"],
               ["MOVE", "Fist over object; open to release", "Shift + left-drag object; release"],
               ["DEPTH", "Grab + move hand in/out", "Wheel while holding object"],
               ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex"],
@@ -2017,7 +2192,7 @@ export function AirloomStudio() {
               ["RESET VIEW", "Manual button", "Click Reset view"],
               ["CLEAR", "Manual button", "Click Clear"],
               ["EXPORT", "Manual button", "Click Export"],
-              ["MODE", "Enable camera + mic", "Exit camera to unlock controls"],
+              ["MODE", "Enable camera", "Exit camera to unlock controls"],
             ].map(([action, hand, combined]) => (
               <div className="gesture-guide-row" key={action}>
                 <span>{action}</span>

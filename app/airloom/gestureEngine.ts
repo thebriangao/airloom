@@ -13,8 +13,6 @@ const DRAW_PINCH_RELEASE_DISTANCE = 0.085;
 const DRAW_PINCH_RELEASE_HOLD_MS = 28;
 const OBJECT_GRAB_HOLD_MS = 28;
 const OBJECT_GRAB_RELEASE_MS = 70;
-const SNAP_COOLDOWN_MS = 900;
-const SNAP_WINDOW_MS = 650;
 
 function distance(a: Landmark, b: Landmark) {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -72,15 +70,6 @@ function fingerExtended(
   );
 }
 
-export function countExtendedFingers(landmarks: Landmark[]) {
-  return [
-    fingerExtended(landmarks, 5, 6, 8),
-    fingerExtended(landmarks, 9, 10, 12),
-    fingerExtended(landmarks, 13, 14, 16),
-    fingerExtended(landmarks, 17, 18, 20),
-  ].filter(Boolean).length;
-}
-
 function classifyPose(landmarks: Landmark[]) {
   const fingers = [
     fingerExtended(landmarks, 5, 6, 8),
@@ -136,9 +125,6 @@ export class GestureEngine {
   private candidate: HandPose = "none";
   private candidateSince = 0;
   private stable: HandPose = "none";
-  private snapArmedAt = 0;
-  private lastSnapAt = 0;
-  private previousMiddleTip?: Landmark;
   private drawingPinch = false;
   private drawingPinchReleaseAt = 0;
   private filteredThumbIndexRatio = 1;
@@ -186,7 +172,6 @@ export class GestureEngine {
     }
 
     const handScale = distance(landmarks[0], landmarks[9]);
-    const palmSpan = Math.max(0.025, distance(landmarks[5], landmarks[17]));
     const palmSpan2D = Math.max(
       0.025,
       distance2D(landmarks[5], landmarks[17]),
@@ -195,10 +180,6 @@ export class GestureEngine {
     const thumbIndexRatio = thumbIndexDistance / palmSpan2D;
     this.filteredThumbIndexRatio =
       this.filteredThumbIndexRatio * 0.45 + thumbIndexRatio * 0.55;
-    const thumbMiddleRatio =
-      distance(landmarks[4], landmarks[12]) / palmSpan;
-    const middleTip = landmarks[12];
-
     if (fist || this.objectGrab) {
       this.drawingPinch = false;
       this.drawingPinchReleaseAt = 0;
@@ -230,33 +211,6 @@ export class GestureEngine {
       this.filteredThumbIndexRatio = thumbIndexRatio;
     }
 
-    if (thumbMiddleRatio < 0.72) {
-      this.snapArmedAt = timestamp;
-    }
-
-    const middleDrop = this.previousMiddleTip
-      ? (middleTip.y - this.previousMiddleTip.y) / palmSpan
-      : 0;
-    const middlePalmRatio = distance(middleTip, landmarks[9]) / palmSpan;
-    const recentlyArmed =
-      this.snapArmedAt > 0 &&
-      timestamp - this.snapArmedAt < SNAP_WINDOW_MS;
-    const snap =
-      recentlyArmed &&
-      thumbMiddleRatio > 0.76 &&
-      (middleDrop > 0.018 || middlePalmRatio < 1.08) &&
-      timestamp - this.lastSnapAt > SNAP_COOLDOWN_MS;
-    const snapPose =
-      thumbMiddleRatio < 0.8 ||
-      (recentlyArmed &&
-        (thumbMiddleRatio < 1.4 || middlePalmRatio < 1.18));
-
-    if (snap) {
-      this.lastSnapAt = timestamp;
-      this.snapArmedAt = 0;
-    }
-
-    this.previousMiddleTip = { ...middleTip };
     const sideViewControl =
       indexPointingUp &&
       !this.drawingPinch &&
@@ -279,8 +233,6 @@ export class GestureEngine {
       objectGrabIntent: fist || this.objectGrab,
       sideViewControl,
       brushHover,
-      snap,
-      snapPose,
       fingerCount,
       palm,
       handScale,
@@ -293,8 +245,6 @@ export class GestureEngine {
     this.candidate = "none";
     this.stable = "none";
     this.candidateSince = 0;
-    this.snapArmedAt = 0;
-    this.previousMiddleTip = undefined;
     this.drawingPinch = false;
     this.drawingPinchReleaseAt = 0;
     this.filteredThumbIndexRatio = 1;

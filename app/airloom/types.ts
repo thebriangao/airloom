@@ -27,8 +27,6 @@ export type GestureResult = {
   objectGrabIntent: boolean;
   sideViewControl: boolean;
   brushHover: boolean;
-  snap: boolean;
-  snapPose: boolean;
   fingerCount: number;
   palm: Point3;
   handScale: number;
