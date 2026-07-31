@@ -11,7 +11,7 @@ const DRAW_PINCH_RELEASE_RATIO = 0.9;
 const DRAW_PINCH_START_DISTANCE = 0.06;
 const DRAW_PINCH_RELEASE_DISTANCE = 0.085;
 const DRAW_PINCH_RELEASE_HOLD_MS = 240;
-const OBJECT_GRAB_HOLD_MS = 75;
+const OBJECT_GRAB_HOLD_MS = 45;
 const OBJECT_GRAB_RELEASE_MS = 150;
 const SNAP_COOLDOWN_MS = 900;
 const SNAP_WINDOW_MS = 650;
@@ -59,8 +59,12 @@ function fingertipsTogether(landmarks: Landmark[]) {
   const center = midpoint(fingertips);
   const reachesPastPalm =
     distance2D(center, landmarks[0]) > palmSpan * 1.02;
+  const spreadRatio = maximumSpread / palmSpan;
   return {
-    active: maximumSpread / palmSpan < 0.78 && reachesPastPalm,
+    active: spreadRatio < 0.9 && reachesPastPalm,
+    tightIntent: spreadRatio < 1.18 && reachesPastPalm,
+    spreadRatio,
+    reachesPastPalm,
     center,
   };
 }
@@ -139,10 +143,21 @@ export class GestureEngine {
   private objectGrabCandidateAt = 0;
   private objectGrabReleaseAt = 0;
   private lastGrabPoint?: Point3;
+  private previousGrabSpread = Infinity;
+  private grabIntentUntil = 0;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
     const { pose: rawPose, fingerCount } = classifyPose(landmarks);
     const grab = fingertipsTogether(landmarks);
+    const fingertipsConverging =
+      grab.reachesPastPalm &&
+      grab.spreadRatio < 2.1 &&
+      this.previousGrabSpread - grab.spreadRatio > 0.055;
+    if (grab.active || grab.tightIntent || fingertipsConverging) {
+      this.grabIntentUntil = timestamp + 190;
+    }
+    const grabIntent = grab.active || timestamp < this.grabIntentUntil;
+    this.previousGrabSpread = grab.spreadRatio;
 
     if (grab.active) {
       this.lastGrabPoint = { ...grab.center };
@@ -189,7 +204,7 @@ export class GestureEngine {
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];
 
-    if (grab.active || this.objectGrab) {
+    if (grabIntent || this.objectGrab) {
       this.drawingPinch = false;
       this.drawingPinchReleaseAt = 0;
     } else if (this.drawingPinch) {
@@ -252,6 +267,7 @@ export class GestureEngine {
       pose: this.objectGrab ? "grab" : this.stable,
       drawingPinch: this.drawingPinch,
       objectGrab: this.objectGrab,
+      objectGrabIntent: grabIntent || this.objectGrab,
       snap,
       snapPose,
       fingerCount,
@@ -284,5 +300,7 @@ export class GestureEngine {
     this.objectGrabCandidateAt = 0;
     this.objectGrabReleaseAt = 0;
     this.lastGrabPoint = undefined;
+    this.previousGrabSpread = Infinity;
+    this.grabIntentUntil = 0;
   }
 }

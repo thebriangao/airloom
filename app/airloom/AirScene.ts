@@ -239,6 +239,9 @@ export class AirScene {
   private grabState?: GrabState;
   private lastArtworkPresence = false;
   private onArtworkPresenceChange?: (hasArtwork: boolean) => void;
+  private sideBoundsDirty = true;
+  private lastSideRenderAt = -Infinity;
+  private lastSideCameraUpdateAt = -Infinity;
   private frame = 0;
   private width = 1;
   private height = 1;
@@ -262,7 +265,7 @@ export class AirScene {
       alpha: true,
       antialias: true,
     });
-    this.sideRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.sideRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.sideRenderer.outputColorSpace = THREE.SRGBColorSpace;
     this.sideRenderer.setClearColor(0xffffff, 0);
     this.camera.position.set(0, 0, 7);
@@ -275,8 +278,12 @@ export class AirScene {
     rim.position.set(-4, -2, 4);
     this.scene.add(ambient, key, rim, this.artwork);
 
-    const loop = () => {
+    const loop = (timestamp = 0) => {
       this.frame = window.requestAnimationFrame(loop);
+      const viewIsMoving =
+        this.artwork.position.distanceToSquared(this.targetPosition) > 0.000001 ||
+        Math.abs(this.artwork.rotation.x - this.targetRotation.x) > 0.0001 ||
+        Math.abs(this.artwork.rotation.y - this.targetRotation.y) > 0.0001;
       this.artwork.position.lerp(this.targetPosition, 0.14);
       this.artwork.rotation.x = THREE.MathUtils.lerp(
         this.artwork.rotation.x,
@@ -289,9 +296,21 @@ export class AirScene {
         0.12,
       );
       this.renderer.render(this.scene, this.camera);
-      if (this.strokes.length > 0) {
-        this.updateSideCamera();
+      if (viewIsMoving) this.sideBoundsDirty = true;
+      if (
+        this.strokes.length > 0 &&
+        timestamp - this.lastSideRenderAt >= 42
+      ) {
+        if (
+          this.sideBoundsDirty &&
+          timestamp - this.lastSideCameraUpdateAt >= 110
+        ) {
+          this.updateSideCamera();
+          this.sideBoundsDirty = false;
+          this.lastSideCameraUpdateAt = timestamp;
+        }
         this.sideRenderer.render(this.scene, this.sideCamera);
+        this.lastSideRenderAt = timestamp;
       }
     };
     loop();
@@ -309,6 +328,7 @@ export class AirScene {
       Math.max(1, sideCanvas.clientHeight || 176),
       false,
     );
+    this.sideBoundsDirty = true;
   }
 
   normalizedToArtwork(point: Point3, depth: number) {
@@ -323,14 +343,19 @@ export class AirScene {
   }
 
   private updateSideCamera() {
-    this.scene.updateMatrixWorld(true);
-    const bounds = new THREE.Box3();
+    this.artwork.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().makeEmpty();
+    let padding = 0.08;
     for (const stroke of this.strokes) {
-      bounds.expandByObject(stroke.mesh);
-      if (stroke.startCap) bounds.expandByObject(stroke.startCap);
-      if (stroke.endCap) bounds.expandByObject(stroke.endCap);
+      padding = Math.max(padding, stroke.radius * 1.5);
+      for (const point of stroke.points) {
+        bounds.expandByPoint(
+          point.clone().applyMatrix4(this.artwork.matrixWorld),
+        );
+      }
     }
     if (bounds.isEmpty()) return;
+    bounds.expandByScalar(padding);
 
     const center = bounds.getCenter(new THREE.Vector3());
     const size = bounds.getSize(new THREE.Vector3());
@@ -371,7 +396,7 @@ export class AirScene {
     const curve = new THREE.CatmullRomCurve3(curvePoints, false, "centripetal");
     return new THREE.TubeGeometry(
       curve,
-      Math.min(420, Math.max(10, points.length * 3)),
+      Math.min(240, Math.max(8, Math.ceil(points.length * 1.6))),
       radius,
       8,
       false,
@@ -392,6 +417,7 @@ export class AirScene {
     );
     if (points.length === 1) mesh.position.copy(points[0]);
     this.artwork.add(mesh);
+    this.sideBoundsDirty = true;
     const stroke: Stroke = {
       points: points.map((point) => point.clone()),
       color,
@@ -442,6 +468,7 @@ export class AirScene {
       stroke.mesh.position.set(0, 0, 0);
     }
     this.updateStrokeCaps(stroke);
+    this.sideBoundsDirty = true;
   }
 
   private removeStroke(stroke: Stroke) {
@@ -453,6 +480,7 @@ export class AirScene {
     }
     (stroke.mesh.material as THREE.Material).dispose();
     this.artwork.remove(stroke.mesh);
+    this.sideBoundsDirty = true;
   }
 
   private strokesTouch(first: Stroke, second: Stroke) {
@@ -625,7 +653,7 @@ export class AirScene {
             .clone()
             .add(point.clone().sub(previous).setLength(0.32))
         : point;
-    const smoothed = previous.clone().lerp(target, 0.46);
+    const smoothed = previous.clone().lerp(target, 0.68);
     if (smoothed.distanceTo(previous) < 0.014) return;
 
     this.activeStroke.points.push(smoothed);
@@ -678,6 +706,7 @@ export class AirScene {
   pan(deltaX: number, deltaY: number) {
     this.targetPosition.x += deltaX * 8;
     this.targetPosition.y -= deltaY * 8;
+    this.sideBoundsDirty = true;
   }
 
   orbit(deltaX: number, deltaY: number, deltaDepth: number) {
@@ -692,6 +721,7 @@ export class AirScene {
       -4.6,
       4.6,
     );
+    this.sideBoundsDirty = true;
   }
 
   undo() {
@@ -720,6 +750,7 @@ export class AirScene {
     this.targetRotation.set(0, 0);
     this.artwork.position.set(0, 0, 0);
     this.artwork.rotation.set(0, 0, 0);
+    this.sideBoundsDirty = true;
   }
 
   getCanvas() {

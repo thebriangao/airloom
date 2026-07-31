@@ -499,15 +499,16 @@ export function AirloomStudio() {
       const landmarks = hands[0];
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
+      const tipResponsiveness = result.drawingPinch ? 0.7 : 0.42;
       if (!filteredTipRef.current) {
         filteredTipRef.current = { ...result.indexTip };
       } else {
         filteredTipRef.current.x +=
-          (result.indexTip.x - filteredTipRef.current.x) * 0.34;
+          (result.indexTip.x - filteredTipRef.current.x) * tipResponsiveness;
         filteredTipRef.current.y +=
-          (result.indexTip.y - filteredTipRef.current.y) * 0.34;
+          (result.indexTip.y - filteredTipRef.current.y) * tipResponsiveness;
         filteredTipRef.current.z +=
-          (result.indexTip.z - filteredTipRef.current.z) * 0.28;
+          (result.indexTip.z - filteredTipRef.current.z) * 0.4;
       }
       const filteredTip = filteredTipRef.current;
       if (!filteredGrabRef.current) {
@@ -522,7 +523,7 @@ export function AirloomStudio() {
       }
 
       if (
-        !result.objectGrab &&
+        !result.objectGrabIntent &&
         (result.snapPose || result.snap)
       ) {
         lastVisualSnapRef.current = timestamp;
@@ -531,9 +532,11 @@ export function AirloomStudio() {
 
       const controlPose = result.objectGrab
         ? "grab"
-        : result.drawingPinch
-          ? "draw"
-          : result.pose;
+        : result.objectGrabIntent
+          ? "other"
+          : result.drawingPinch
+            ? "draw"
+            : result.pose;
       updateGesture(controlPose);
 
       if (menuOpenRef.current) {
