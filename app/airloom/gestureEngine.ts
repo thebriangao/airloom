@@ -204,7 +204,7 @@ export class GestureEngine {
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];
 
-    if (grabIntent || this.objectGrab) {
+    if (this.objectGrab) {
       this.drawingPinch = false;
       this.drawingPinchReleaseAt = 0;
     } else if (this.drawingPinch) {
@@ -226,6 +226,8 @@ export class GestureEngine {
       } else {
         this.drawingPinchReleaseAt = 0;
       }
+    } else if (grabIntent) {
+      this.drawingPinchReleaseAt = 0;
     } else if (
       thumbIndexRatio < DRAW_PINCH_START_RATIO ||
       thumbIndexDistance < DRAW_PINCH_START_DISTANCE

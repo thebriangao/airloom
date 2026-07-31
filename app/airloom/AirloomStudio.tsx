@@ -532,10 +532,10 @@ export function AirloomStudio() {
 
       const controlPose = result.objectGrab
         ? "grab"
-        : result.objectGrabIntent
-          ? "other"
-          : result.drawingPinch
-            ? "draw"
+        : result.drawingPinch
+          ? "draw"
+          : result.objectGrabIntent
+            ? "other"
             : result.pose;
       updateGesture(controlPose);
 
