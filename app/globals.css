@@ -1038,13 +1038,16 @@ button {
   z-index: 10;
   bottom: 77px;
   left: 32px;
-  width: min(760px, calc(100vw - 64px));
-  overflow: hidden;
+  width: min(860px, calc(100vw - 64px));
+  max-height: calc(100vh - 112px);
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #cfcfca;
   border-radius: 17px;
   background: rgba(251, 251, 248, 0.94);
   box-shadow: 0 17px 45px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(14px);
+  overscroll-behavior: contain;
 }
 
 .gesture-guide > header {
@@ -1085,14 +1088,35 @@ button {
   letter-spacing: 0.08em;
 }
 
+.gesture-guide-columns,
 .gesture-guide-row {
   display: grid;
-  grid-template-columns: 72px 1.15fr 1.85fr;
+  grid-template-columns: 88px 1.2fr 1.8fr;
   align-items: center;
-  min-height: 31px;
+  column-gap: 12px;
+}
+
+.gesture-guide-columns {
+  min-height: 24px;
+  padding: 0 14px;
+  border-bottom: 1px solid #d7d7d1;
+  background: #ecece7;
+}
+
+.gesture-guide-columns span,
+.gesture-guide-columns b,
+.gesture-guide-columns strong {
+  color: #74746e;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 6px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+}
+
+.gesture-guide-row {
+  min-height: 29px;
   padding: 0 14px;
   border-bottom: 1px solid #e1e1dc;
-  column-gap: 12px;
 }
 
 .gesture-guide-row:last-child {
@@ -1197,6 +1221,13 @@ button {
     padding: 8px 12px;
   }
 
+  .gesture-guide-columns {
+    grid-template-columns: 58px 1fr;
+    gap: 3px 10px;
+    padding: 7px 12px;
+  }
+
+  .gesture-guide-columns strong,
   .gesture-guide-row strong {
     grid-column: 2;
   }

@@ -44,7 +44,7 @@ type SoundKind =
 const POSE_LABELS: Record<HandPose, string> = {
   none: "Show your hand",
   draw: "Drawing",
-  grab: "Touch five fingertips to grab",
+  grab: "Close fist over an object",
   pan2d: "Panning",
   orbit3d: "Orbiting",
   fist: "Choosing color",
@@ -814,13 +814,19 @@ export function AirloomStudio() {
         if (confirmSnap(timestamp)) return;
       }
 
-      const controlPose = result.objectGrab
-        ? "grab"
-        : result.drawingPinch
-          ? "draw"
-          : result.objectGrabIntent
-            ? "other"
-            : result.pose;
+      const menuFist =
+        menuOpenRef.current &&
+        result.fingerCount === 0 &&
+        result.objectGrabIntent;
+      const controlPose = menuFist
+        ? "fist"
+        : result.objectGrab
+          ? "grab"
+          : result.drawingPinch
+            ? "draw"
+            : result.objectGrabIntent
+              ? "other"
+              : result.pose;
       updateGesture(controlPose);
 
       if (menuOpenRef.current) {
@@ -828,7 +834,7 @@ export function AirloomStudio() {
         releaseObjectGrab();
         previousControlRef.current = null;
 
-        if (result.pose === "fist" && !eraserEnabledRef.current) {
+        if (menuFist && !eraserEnabledRef.current) {
           const column = Math.min(
             4,
             Math.floor(gridPosition(1 - result.palm.x) * 5),
@@ -1704,7 +1710,7 @@ export function AirloomStudio() {
                     ? snapKind === "none"
                       ? "Moving object"
                       : `${snapKind === "vertex" ? "Vertex" : "Edge"} snap locked`
-                    : "Touch an object to grab"
+                    : "Close fist over an object"
                   : eraserEnabled
                     ? `Eraser · ${POSE_LABELS[gesture]}`
                     : POSE_LABELS[gesture]}
@@ -1977,27 +1983,41 @@ export function AirloomStudio() {
         </nav>
 
         {helpOpen && (
-          <aside className="gesture-guide">
+          <aside
+            className="gesture-guide"
+            aria-label="Complete Airloom control map"
+          >
             <header>
               <div>
                 <span>CONTROL MAP</span>
-                <strong>HAND · KEYBOARD + MOUSE</strong>
+                <strong>ALL AIRLOOM CONTROLS</strong>
               </div>
               <small>CLICK ? TO CLOSE</small>
             </header>
+            <div className="gesture-guide-columns" aria-hidden="true">
+              <span>ACTION</span>
+              <b>HAND + CAMERA</b>
+              <strong>KEYBOARD + MOUSE</strong>
+            </div>
             {[
-              ["HOVER", "Thumb + index apart", "Mouse hover"],
-              ["DRAW", "Thumb + index pinch", "Left-drag"],
-              ["PAN", "Two fingers", "Two-finger swipe or middle-drag"],
-              ["ORBIT", "Three fingers", "Option/Shift + swipe or right-drag"],
-              ["ZOOM", "Three fingers in/out", "Trackpad pinch"],
-              ["SIDE VIEW", "Index up + move", "Drag the side viewer"],
-              ["PALETTE", "Snap + sound", "Click the side tab"],
-              ["COLOR", "Fist + move", "Click a swatch"],
-              ["SIZE", "Open palm + move", "Drag the slider"],
-              ["ERASER", "Clap + sound", "Double-click or click Eraser"],
-              ["MOVE", "Five fingertips", "Shift + drag, wheel for depth"],
+              ["CURSOR", "Thumb + index apart", "Hover over canvas"],
+              ["DRAW", "Pinch thumb + index; separate to stop", "Left-drag; release to stop"],
+              ["PAN", "Two fingers + move", "Two-finger swipe or middle-drag"],
+              ["ORBIT", "Three fingers + move", "Right-drag or Option/Shift + swipe"],
+              ["ZOOM", "Three fingers + hand in/out", "Trackpad pinch or Ctrl + wheel"],
+              ["SIDE VIEW", "Index up + move; release springs back", "Drag viewer; release springs back"],
+              ["PALETTE", "Snap + sound", "Click side tab; Escape closes"],
+              ["COLOR", "Fist + move inside palette", "Click a swatch"],
+              ["TOOL SIZE", "Open palm + move inside palette", "Drag active tool slider"],
+              ["ERASER", "Clap + sound", "Double-click canvas or click Eraser"],
+              ["MOVE", "Fist over object; open to release", "Shift + left-drag object; release"],
+              ["DEPTH", "Grab + move hand in/out", "Wheel while holding object"],
+              ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex"],
               ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo"],
+              ["RESET VIEW", "Manual button", "Click Reset view"],
+              ["CLEAR", "Manual button", "Click Clear"],
+              ["EXPORT", "Manual button", "Click Export"],
+              ["MODE", "Enable camera + mic", "Exit camera to unlock controls"],
             ].map(([action, hand, combined]) => (
               <div className="gesture-guide-row" key={action}>
                 <span>{action}</span>
