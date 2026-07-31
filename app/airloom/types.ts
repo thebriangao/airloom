@@ -13,6 +13,7 @@ export type Landmark = {
 export type HandPose =
   | "none"
   | "draw"
+  | "grab"
   | "pan2d"
   | "orbit3d"
   | "fist"
@@ -22,12 +23,14 @@ export type HandPose =
 export type GestureResult = {
   pose: HandPose;
   drawingPinch: boolean;
+  objectGrab: boolean;
   snap: boolean;
   snapPose: boolean;
   fingerCount: number;
   palm: Point3;
   handScale: number;
   indexTip: Point3;
+  grabPoint: Point3;
 };
 
 export const AIRLOOM_COLORS = [

@@ -10,6 +10,20 @@ type Stroke = {
   endCap?: THREE.Mesh;
 };
 
+export type SnapKind = "none" | "vertex" | "edge";
+
+type GrabState = {
+  strokes: Stroke[];
+  originalPoints: Map<Stroke, THREE.Vector3[]>;
+  anchor: THREE.Vector3;
+  worldDepth: number;
+};
+
+type SnapResult = {
+  translation: THREE.Vector3;
+  kind: SnapKind;
+};
+
 export function projectNormalizedPointToArtwork(
   camera: THREE.PerspectiveCamera,
   artwork: THREE.Object3D,
@@ -91,72 +105,150 @@ export function splitStrokeOutsideEraser(
   return runs;
 }
 
+function featureVertices(points: THREE.Vector3[]) {
+  if (points.length <= 2) return points.map((point) => point.clone());
+  const vertices = [points[0].clone()];
+  let lastVertex = points[0];
+  const windowSize = Math.min(4, Math.max(1, Math.floor(points.length / 8)));
+
+  for (
+    let index = windowSize;
+    index < points.length - windowSize;
+    index += 1
+  ) {
+    const incoming = points[index]
+      .clone()
+      .sub(points[index - windowSize]);
+    const outgoing = points[index + windowSize]
+      .clone()
+      .sub(points[index]);
+    if (
+      incoming.lengthSq() > 0.0001 &&
+      outgoing.lengthSq() > 0.0001 &&
+      incoming.angleTo(outgoing) > 0.38 &&
+      points[index].distanceTo(lastVertex) > 0.14
+    ) {
+      vertices.push(points[index].clone());
+      lastVertex = points[index];
+    }
+  }
+
+  const end = points.at(-1)!;
+  if (end.distanceTo(lastVertex) > 0.03) vertices.push(end.clone());
+  return vertices;
+}
+
+function segmentsForPoints(
+  points: THREE.Vector3[],
+  translation = new THREE.Vector3(),
+) {
+  const segments: THREE.Line3[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    segments.push(
+      new THREE.Line3(
+        points[index - 1].clone().add(translation),
+        points[index].clone().add(translation),
+      ),
+    );
+  }
+  return segments;
+}
+
+export function snapObjectTranslation(
+  movingStrokes: THREE.Vector3[][],
+  targetStrokes: THREE.Vector3[][],
+  translation: THREE.Vector3,
+  threshold = 0.28,
+): SnapResult {
+  const unsnapped = { translation: translation.clone(), kind: "none" as const };
+  if (movingStrokes.length === 0 || targetStrokes.length === 0) {
+    return unsnapped;
+  }
+
+  const movingVertices = movingStrokes.flatMap((points) =>
+    featureVertices(points).map((point) => point.add(translation)),
+  );
+  const targetVertices = targetStrokes.flatMap(featureVertices);
+  const movingSegments = movingStrokes.flatMap((points) =>
+    segmentsForPoints(points, translation),
+  );
+  const targetSegments = targetStrokes.flatMap((points) =>
+    segmentsForPoints(points),
+  );
+
+  let bestVertexDistance = Infinity;
+  let bestVertexCorrection: THREE.Vector3 | undefined;
+  for (const moving of movingVertices) {
+    for (const target of targetVertices) {
+      const distance = moving.distanceTo(target);
+      if (distance >= bestVertexDistance) continue;
+      bestVertexDistance = distance;
+      bestVertexCorrection = target.clone().sub(moving);
+    }
+  }
+  if (bestVertexCorrection && bestVertexDistance <= threshold * 0.82) {
+    return {
+      translation: translation.clone().add(bestVertexCorrection),
+      kind: "vertex",
+    };
+  }
+
+  let bestEdgeDistance = Infinity;
+  let bestEdgeCorrection: THREE.Vector3 | undefined;
+  const closest = new THREE.Vector3();
+  for (const moving of movingVertices) {
+    for (const targetEdge of targetSegments) {
+      targetEdge.closestPointToPoint(moving, true, closest);
+      const distance = moving.distanceTo(closest);
+      if (distance >= bestEdgeDistance) continue;
+      bestEdgeDistance = distance;
+      bestEdgeCorrection = closest.clone().sub(moving);
+    }
+  }
+  for (const target of targetVertices) {
+    for (const movingEdge of movingSegments) {
+      movingEdge.closestPointToPoint(target, true, closest);
+      const distance = target.distanceTo(closest);
+      if (distance >= bestEdgeDistance) continue;
+      bestEdgeDistance = distance;
+      bestEdgeCorrection = target.clone().sub(closest);
+    }
+  }
+  if (bestEdgeCorrection && bestEdgeDistance <= threshold) {
+    return {
+      translation: translation.clone().add(bestEdgeCorrection),
+      kind: "edge",
+    };
+  }
+  return unsnapped;
+}
+
 export class AirScene {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
+  private sideCamera = new THREE.OrthographicCamera(-2, 2, 1.4, -1.4, 0.1, 100);
   private raycaster = new THREE.Raycaster();
   private renderer: THREE.WebGLRenderer;
+  private sideRenderer: THREE.WebGLRenderer;
   private artwork = new THREE.Group();
   private targetPosition = new THREE.Vector3();
   private targetRotation = new THREE.Vector2();
-  private cursorCoreMaterial = new THREE.MeshStandardMaterial({
-    color: "#111111",
-    emissive: "#111111",
-    emissiveIntensity: 0.4,
-    roughness: 0.3,
-    metalness: 0.04,
-    transparent: true,
-  });
-  private cursorDepthMaterial = new THREE.MeshBasicMaterial({
-    color: "#111111",
-    wireframe: true,
-    transparent: true,
-    opacity: 0.9,
-    depthTest: false,
-  });
-  private cursorAnchorMaterial = new THREE.MeshBasicMaterial({
-    color: "#111111",
-    wireframe: true,
-    transparent: true,
-    opacity: 0.28,
-    depthTest: false,
-  });
-  private cursorLineMaterial = new THREE.LineDashedMaterial({
-    color: "#111111",
-    transparent: true,
-    opacity: 0.7,
-    dashSize: 0.08,
-    gapSize: 0.05,
-    depthTest: false,
-  });
-  private cursorGroup = new THREE.Group();
-  private cursorCore = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 16, 14),
-    this.cursorCoreMaterial,
-  );
-  private cursorDepthHalo = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 14, 12),
-    this.cursorDepthMaterial,
-  );
-  private cursorAnchor = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 12, 10),
-    this.cursorAnchorMaterial,
-  );
-  private cursorLine = new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(),
-      new THREE.Vector3(),
-    ]),
-    this.cursorLineMaterial,
-  );
   private strokes: Stroke[] = [];
   private activeStroke?: Stroke;
   private previousEraserPoint?: THREE.Vector3;
+  private grabState?: GrabState;
+  private lastArtworkPresence = false;
+  private onArtworkPresenceChange?: (hasArtwork: boolean) => void;
   private frame = 0;
   private width = 1;
   private height = 1;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    sideCanvas: HTMLCanvasElement,
+    onArtworkPresenceChange?: (hasArtwork: boolean) => void,
+  ) {
+    this.onArtworkPresenceChange = onArtworkPresenceChange;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
@@ -165,25 +257,22 @@ export class AirScene {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.sideRenderer = new THREE.WebGLRenderer({
+      canvas: sideCanvas,
+      alpha: true,
+      antialias: true,
+    });
+    this.sideRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.sideRenderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.sideRenderer.setClearColor(0xffffff, 0);
     this.camera.position.set(0, 0, 7);
+    this.sideCamera.up.set(0, 1, 0);
 
     const ambient = new THREE.AmbientLight("#ffffff", 2.2);
     const key = new THREE.DirectionalLight("#ffffff", 3.8);
     key.position.set(4, 5, 7);
     const rim = new THREE.PointLight("#d9d9d9", 18, 18);
     rim.position.set(-4, -2, 4);
-    this.cursorGroup.add(this.cursorCore, this.cursorDepthHalo);
-    this.cursorGroup.visible = false;
-    this.cursorAnchor.visible = false;
-    this.cursorLine.visible = false;
-    this.cursorDepthHalo.renderOrder = 20;
-    this.cursorAnchor.renderOrder = 19;
-    this.cursorLine.renderOrder = 18;
-    this.artwork.add(
-      this.cursorGroup,
-      this.cursorAnchor,
-      this.cursorLine,
-    );
     this.scene.add(ambient, key, rim, this.artwork);
 
     const loop = () => {
@@ -200,6 +289,10 @@ export class AirScene {
         0.12,
       );
       this.renderer.render(this.scene, this.camera);
+      if (this.strokes.length > 0) {
+        this.updateSideCamera();
+        this.sideRenderer.render(this.scene, this.sideCamera);
+      }
     };
     loop();
   }
@@ -210,6 +303,12 @@ export class AirScene {
     this.camera.aspect = this.width / this.height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(this.width, this.height, false);
+    const sideCanvas = this.sideRenderer.domElement;
+    this.sideRenderer.setSize(
+      Math.max(1, sideCanvas.clientWidth || 260),
+      Math.max(1, sideCanvas.clientHeight || 176),
+      false,
+    );
   }
 
   normalizedToArtwork(point: Point3, depth: number) {
@@ -223,75 +322,42 @@ export class AirScene {
     );
   }
 
-  setBrushCursor(
-    point: THREE.Vector3,
-    radius: number,
-    color: string,
-    eraser: boolean,
-    active: boolean,
-    depth: number,
-  ) {
-    if (!point.toArray().every(Number.isFinite)) {
-      this.hideBrushCursor();
-      return;
+  private updateSideCamera() {
+    this.scene.updateMatrixWorld(true);
+    const bounds = new THREE.Box3();
+    for (const stroke of this.strokes) {
+      bounds.expandByObject(stroke.mesh);
+      if (stroke.startCap) bounds.expandByObject(stroke.startCap);
+      if (stroke.endCap) bounds.expandByObject(stroke.endCap);
     }
+    if (bounds.isEmpty()) return;
 
-    const safeRadius = THREE.MathUtils.clamp(radius, 0.001, 0.72);
-    const depthColor =
-      depth > 0.065
-        ? "#ff5a5f"
-        : depth < -0.065
-          ? "#2864dc"
-          : "#111111";
-
-    this.cursorGroup.visible = true;
-    this.cursorGroup.position.copy(point);
-    this.cursorCore.scale.setScalar(safeRadius);
-    this.cursorDepthHalo.scale.setScalar(
-      safeRadius * (active ? 1.42 : 1.24),
+    const center = bounds.getCenter(new THREE.Vector3());
+    const size = bounds.getSize(new THREE.Vector3());
+    const canvas = this.sideRenderer.domElement;
+    const aspect =
+      Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight);
+    const halfHeight = Math.max(
+      0.8,
+      size.y * 0.64,
+      (size.z / Math.max(0.5, aspect)) * 0.64,
     );
-    this.cursorCoreMaterial.color.set(eraser ? "#fbfbf8" : color);
-    this.cursorCoreMaterial.emissive.set(eraser ? "#777777" : color);
-    this.cursorCoreMaterial.opacity = eraser ? 0.3 : 0.88;
-    this.cursorCoreMaterial.wireframe = eraser;
-    this.cursorDepthMaterial.color.set(depthColor);
-    this.cursorDepthMaterial.opacity = active ? 1 : 0.76;
+    const halfWidth = halfHeight * aspect;
 
-    this.artwork.updateMatrixWorld(true);
-    const worldPoint = point.clone().applyMatrix4(this.artwork.matrixWorld);
-    const artworkOrigin = this.artwork.getWorldPosition(new THREE.Vector3());
-    const worldAnchor = new THREE.Vector3(
-      worldPoint.x,
-      worldPoint.y,
-      artworkOrigin.z,
-    );
-    const localAnchor = worldAnchor.applyMatrix4(
-      this.artwork.matrixWorld.clone().invert(),
-    );
-    const showDepthGuide = Math.abs(depth) > 0.045;
-
-    this.cursorAnchor.visible = showDepthGuide;
-    this.cursorLine.visible = showDepthGuide;
-    if (!showDepthGuide) return;
-
-    this.cursorAnchor.position.copy(localAnchor);
-    this.cursorAnchor.scale.setScalar(safeRadius * 0.82);
-    this.cursorAnchorMaterial.color.set(depthColor);
-    this.cursorLineMaterial.color.set(depthColor);
-    const positions = this.cursorLine.geometry.getAttribute(
-      "position",
-    ) as THREE.BufferAttribute;
-    positions.setXYZ(0, point.x, point.y, point.z);
-    positions.setXYZ(1, localAnchor.x, localAnchor.y, localAnchor.z);
-    positions.needsUpdate = true;
-    this.cursorLine.geometry.computeBoundingSphere();
-    this.cursorLine.computeLineDistances();
+    this.sideCamera.left = -halfWidth;
+    this.sideCamera.right = halfWidth;
+    this.sideCamera.top = halfHeight;
+    this.sideCamera.bottom = -halfHeight;
+    this.sideCamera.position.set(center.x + 12, center.y, center.z);
+    this.sideCamera.lookAt(center);
+    this.sideCamera.updateProjectionMatrix();
   }
 
-  hideBrushCursor() {
-    this.cursorGroup.visible = false;
-    this.cursorAnchor.visible = false;
-    this.cursorLine.visible = false;
+  private notifyArtworkPresence() {
+    const hasArtwork = this.strokes.length > 0;
+    if (hasArtwork === this.lastArtworkPresence) return;
+    this.lastArtworkPresence = hasArtwork;
+    this.onArtworkPresenceChange?.(hasArtwork);
   }
 
   private geometryForPoints(points: THREE.Vector3[], radius: number) {
@@ -370,7 +436,11 @@ export class AirScene {
   private rebuildStroke(stroke: Stroke) {
     stroke.mesh.geometry.dispose();
     stroke.mesh.geometry = this.geometryForPoints(stroke.points, stroke.radius);
-    stroke.mesh.position.set(0, 0, 0);
+    if (stroke.points.length === 1) {
+      stroke.mesh.position.copy(stroke.points[0]);
+    } else {
+      stroke.mesh.position.set(0, 0, 0);
+    }
     this.updateStrokeCaps(stroke);
   }
 
@@ -385,11 +455,163 @@ export class AirScene {
     this.artwork.remove(stroke.mesh);
   }
 
+  private strokesTouch(first: Stroke, second: Stroke) {
+    const threshold = Math.max(
+      0.16,
+      first.radius + second.radius + 0.08,
+    );
+    const thresholdSquared = threshold * threshold;
+    for (const firstPoint of first.points) {
+      for (const secondPoint of second.points) {
+        if (firstPoint.distanceToSquared(secondPoint) <= thresholdSquared) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private connectedObject(seed: Stroke) {
+    const connected = new Set<Stroke>([seed]);
+    const queue = [seed];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const candidate of this.strokes) {
+        if (
+          connected.has(candidate) ||
+          !this.strokesTouch(current, candidate)
+        ) {
+          continue;
+        }
+        connected.add(candidate);
+        queue.push(candidate);
+      }
+    }
+    return [...connected];
+  }
+
+  private setStrokeSelected(stroke: Stroke, selected: boolean) {
+    const material = stroke.mesh.material as THREE.MeshStandardMaterial;
+    material.emissiveIntensity = selected ? 1.45 : 0.52;
+    material.roughness = selected ? 0.18 : 0.32;
+  }
+
+  private strokeUnderPoint(point: Point3) {
+    if (this.strokes.length === 0) return undefined;
+    const ndc = new THREE.Vector2(
+      1 - THREE.MathUtils.clamp(point.x, 0.018, 0.982) * 2,
+      1 - THREE.MathUtils.clamp(point.y, 0.018, 0.982) * 2,
+    );
+    this.scene.updateMatrixWorld(true);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    const meshToStroke = new Map(
+      this.strokes.map((stroke) => [stroke.mesh, stroke]),
+    );
+    const exactHit = this.raycaster.intersectObjects(
+      [...meshToStroke.keys()],
+      false,
+    )[0];
+    if (exactHit) {
+      return {
+        stroke: meshToStroke.get(exactHit.object as THREE.Mesh)!,
+        worldPoint: exactHit.point,
+      };
+    }
+
+    let nearest:
+      | { stroke: Stroke; worldPoint: THREE.Vector3; distance: number }
+      | undefined;
+    const aspect = this.width / Math.max(1, this.height);
+    for (const stroke of this.strokes) {
+      for (const localPoint of stroke.points) {
+        const worldPoint = localPoint
+          .clone()
+          .applyMatrix4(this.artwork.matrixWorld);
+        const projected = worldPoint.clone().project(this.camera);
+        const screenDistance = Math.hypot(
+          (projected.x - ndc.x) * aspect,
+          projected.y - ndc.y,
+        );
+        if (screenDistance > 0.075 || screenDistance >= (nearest?.distance ?? Infinity)) {
+          continue;
+        }
+        nearest = { stroke, worldPoint, distance: screenDistance };
+      }
+    }
+    return nearest;
+  }
+
+  beginObjectGrab(point: Point3) {
+    this.endStroke();
+    this.endObjectGrab();
+    const hit = this.strokeUnderPoint(point);
+    if (!hit) return false;
+
+    const strokes = this.connectedObject(hit.stroke);
+    const inverseArtwork = this.artwork.matrixWorld.clone().invert();
+    const anchor = hit.worldPoint.clone().applyMatrix4(inverseArtwork);
+    const artworkOrigin = this.artwork.getWorldPosition(new THREE.Vector3());
+    this.grabState = {
+      strokes,
+      originalPoints: new Map(
+        strokes.map((stroke) => [
+          stroke,
+          stroke.points.map((strokePoint) => strokePoint.clone()),
+        ]),
+      ),
+      anchor,
+      worldDepth: hit.worldPoint.z - artworkOrigin.z,
+    };
+    for (const stroke of strokes) this.setStrokeSelected(stroke, true);
+    return true;
+  }
+
+  moveObjectGrab(point: Point3, depthDelta: number): SnapKind {
+    const grab = this.grabState;
+    if (!grab) return "none";
+    const cursorPoint = this.normalizedToArtwork(
+      point,
+      grab.worldDepth + THREE.MathUtils.clamp(depthDelta, -2.15, 2.15),
+    );
+    if (!cursorPoint) return "none";
+
+    const rawTranslation = cursorPoint.clone().sub(grab.anchor);
+    const movingPoints = grab.strokes.map(
+      (stroke) => grab.originalPoints.get(stroke)!,
+    );
+    const selected = new Set(grab.strokes);
+    const targetPoints = this.strokes
+      .filter((stroke) => !selected.has(stroke))
+      .map((stroke) => stroke.points);
+    const snap = snapObjectTranslation(
+      movingPoints,
+      targetPoints,
+      rawTranslation,
+    );
+
+    for (const stroke of grab.strokes) {
+      stroke.points = grab.originalPoints
+        .get(stroke)!
+        .map((strokePoint) => strokePoint.clone().add(snap.translation));
+      this.rebuildStroke(stroke);
+    }
+    return snap.kind;
+  }
+
+  endObjectGrab() {
+    if (!this.grabState) return;
+    for (const stroke of this.grabState.strokes) {
+      this.setStrokeSelected(stroke, false);
+    }
+    this.grabState = undefined;
+  }
+
   addPoint(point: THREE.Vector3, color: string, radius: number) {
     this.previousEraserPoint = undefined;
     if (!this.activeStroke) {
       this.activeStroke = this.createStroke([point], color, radius);
       this.strokes.push(this.activeStroke);
+      this.notifyArtworkPresence();
       return;
     }
 
@@ -444,6 +666,7 @@ export class AirScene {
     }
 
     this.previousEraserPoint = point.clone();
+    if (erased) this.notifyArtworkPresence();
     return erased;
   }
 
@@ -472,22 +695,27 @@ export class AirScene {
   }
 
   undo() {
+    this.endObjectGrab();
     this.endStroke();
     const stroke = this.strokes.pop();
     if (!stroke) return;
     this.removeStroke(stroke);
+    this.notifyArtworkPresence();
   }
 
   clear() {
+    this.endObjectGrab();
     this.endStroke();
     for (const stroke of this.strokes) {
       this.removeStroke(stroke);
     }
     this.strokes = [];
+    this.notifyArtworkPresence();
     this.resetView();
   }
 
   resetView() {
+    this.endObjectGrab();
     this.targetPosition.set(0, 0, 0);
     this.targetRotation.set(0, 0);
     this.artwork.position.set(0, 0, 0);
@@ -495,28 +723,15 @@ export class AirScene {
   }
 
   getCanvas() {
-    const cursorVisible = this.cursorGroup.visible;
-    const anchorVisible = this.cursorAnchor.visible;
-    const lineVisible = this.cursorLine.visible;
-    this.hideBrushCursor();
     this.renderer.render(this.scene, this.camera);
-    this.cursorGroup.visible = cursorVisible;
-    this.cursorAnchor.visible = anchorVisible;
-    this.cursorLine.visible = lineVisible;
     return this.renderer.domElement;
   }
 
   dispose() {
     window.cancelAnimationFrame(this.frame);
+    this.onArtworkPresenceChange = undefined;
     this.clear();
-    this.cursorCore.geometry.dispose();
-    this.cursorDepthHalo.geometry.dispose();
-    this.cursorAnchor.geometry.dispose();
-    this.cursorLine.geometry.dispose();
-    this.cursorCoreMaterial.dispose();
-    this.cursorDepthMaterial.dispose();
-    this.cursorAnchorMaterial.dispose();
-    this.cursorLineMaterial.dispose();
     this.renderer.dispose();
+    this.sideRenderer.dispose();
   }
 }

@@ -153,60 +153,142 @@ button {
   background: #fff;
 }
 
-.depth-key {
+.side-view-inset {
   position: absolute;
-  z-index: 8;
-  top: 72px;
-  left: 50%;
-  display: grid;
-  grid-template-columns: 8px auto;
-  align-items: center;
-  column-gap: 7px;
-  padding: 7px 11px;
-  border: 1px solid #d9d9d4;
-  border-radius: 11px;
-  background: rgba(251, 251, 248, 0.82);
+  z-index: 10;
+  right: 44px;
+  bottom: 34px;
+  width: clamp(220px, 19vw, 286px);
+  overflow: hidden;
+  border: 1.5px solid #151514;
+  border-radius: 22px;
+  background: rgba(251, 251, 248, 0.94);
+  box-shadow:
+    0 2px 0 #fff inset,
+    7px 8px 0 rgba(17, 17, 17, 0.08),
+    0 18px 42px rgba(17, 17, 17, 0.12);
   color: #111;
+  opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%);
-  backdrop-filter: blur(12px);
+  transform: translateY(18px) scale(0.96);
+  transform-origin: right bottom;
+  transition:
+    opacity 260ms ease,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(16px);
 }
 
-.depth-key-swatch {
-  grid-row: 1 / span 2;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #111;
-  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.09);
+.side-view-inset.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
-.depth-key strong,
-.depth-key small {
+.side-view-inset header,
+.side-view-inset footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+}
+
+.side-view-inset header {
+  height: 40px;
+}
+
+.side-view-inset header div {
+  display: grid;
+  gap: 2px;
+}
+
+.side-view-inset header span,
+.side-view-inset header strong,
+.side-view-inset footer span,
+.side-view-inset footer strong {
   font-family: var(--font-geist-mono), monospace;
-  line-height: 1;
+  line-height: 1.1;
 }
 
-.depth-key strong {
-  font-size: 8px;
-  letter-spacing: 0.1em;
-}
-
-.depth-key small {
-  margin-top: 2px;
-  color: #85857f;
+.side-view-inset header span,
+.side-view-inset footer span {
+  color: #888882;
   font-size: 6px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
 }
 
-.depth-key.is-front .depth-key-swatch {
-  background: #ff5a5f;
-  box-shadow: 0 0 0 3px rgba(255, 90, 95, 0.14);
+.side-view-inset header strong,
+.side-view-inset footer strong {
+  font-size: 8px;
+  letter-spacing: 0.09em;
 }
 
-.depth-key.is-back .depth-key-swatch {
-  background: #2864dc;
-  box-shadow: 0 0 0 3px rgba(40, 100, 220, 0.14);
+.side-view-inset header i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1bc462;
+  box-shadow: 0 0 0 3px rgba(27, 196, 98, 0.13);
+}
+
+.side-view-stage {
+  position: relative;
+  height: clamp(118px, 12vw, 155px);
+  overflow: hidden;
+  border-top: 1px solid #d5d5d0;
+  border-bottom: 1px solid #d5d5d0;
+  background-color: #f8f8f4;
+  background-image: radial-gradient(#cecec8 0.75px, transparent 0.75px);
+  background-size: 13px 13px;
+}
+
+.side-view-canvas {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.side-axis {
+  position: absolute;
+  z-index: 1;
+  background: rgba(17, 17, 17, 0.1);
+}
+
+.side-axis-horizontal {
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 1px;
+}
+
+.side-axis-vertical {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+}
+
+.side-depth-label {
+  position: absolute;
+  z-index: 3;
+  bottom: 7px;
+  color: rgba(17, 17, 17, 0.38);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 6px;
+  letter-spacing: 0.12em;
+}
+
+.side-depth-label.is-front {
+  left: 9px;
+}
+
+.side-depth-label.is-back {
+  right: 9px;
+}
+
+.side-view-inset footer {
+  height: 30px;
 }
 
 .camera-bubble {
@@ -915,7 +997,7 @@ button {
   bottom: 77px;
   left: 32px;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   overflow: hidden;
   border: 1px solid #cfcfca;
   border-radius: 17px;
@@ -974,10 +1056,10 @@ button {
     transform: none;
   }
 
-  .depth-key {
-    top: 120px;
-    left: 20px;
-    transform: none;
+  .side-view-inset {
+    right: 18px;
+    bottom: 70px;
+    width: 190px;
   }
 
   .camera-bubble {
