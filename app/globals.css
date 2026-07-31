@@ -47,6 +47,7 @@ button {
   background-image: radial-gradient(circle, #cfcfca 1.15px, transparent 1.3px);
   background-position: 12px 12px;
   background-size: 24px 24px;
+  cursor: none;
   touch-action: none;
 }
 
@@ -62,7 +63,7 @@ button {
 }
 
 .white-workspace.mouse-mode {
-  cursor: crosshair;
+  cursor: none;
 }
 
 .air-canvas {
@@ -1021,8 +1022,7 @@ button {
   z-index: 10;
   bottom: 77px;
   left: 32px;
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  width: min(760px, calc(100vw - 64px));
   overflow: hidden;
   border: 1px solid #cfcfca;
   border-radius: 17px;
@@ -1031,28 +1031,94 @@ button {
   backdrop-filter: blur(14px);
 }
 
-.gesture-guide div {
-  min-width: 105px;
-  padding: 13px 16px;
-  border-right: 1px solid #d8d8d2;
+.gesture-guide > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  border-bottom: 1px solid #d8d8d2;
+  background: #111;
+  color: #fff;
 }
 
-.gesture-guide div:last-child {
-  border-right: 0;
+.gesture-guide > header div {
+  display: grid;
+  gap: 3px;
 }
 
-.gesture-guide span {
-  display: block;
-  color: #85857f;
+.gesture-guide > header span,
+.gesture-guide > header strong {
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.gesture-guide > header span {
+  color: #93938d;
+  font-size: 6px;
+  letter-spacing: 0.12em;
+}
+
+.gesture-guide > header strong {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.gesture-guide-row {
+  display: grid;
+  grid-template-columns: 72px 1.1fr 1.5fr 0.85fr;
+  align-items: center;
+  min-height: 31px;
+  padding: 0 14px;
+  border-bottom: 1px solid #e1e1dc;
+  column-gap: 12px;
+}
+
+.gesture-guide-row:last-child {
+  border-bottom: 0;
+}
+
+.gesture-guide-row span,
+.gesture-guide-row b,
+.gesture-guide-row strong,
+.gesture-guide kbd {
   font-family: var(--font-geist-mono), monospace;
   font-size: 8px;
 }
 
-.gesture-guide strong {
-  display: block;
-  margin-top: 3px;
-  font-size: 10px;
+.gesture-guide-row span {
+  color: #85857f;
+  letter-spacing: 0.08em;
+}
+
+.gesture-guide-row b,
+.gesture-guide-row strong {
+  font-weight: 550;
+}
+
+.gesture-guide-row strong {
+  color: #454541;
+}
+
+.gesture-guide kbd {
+  justify-self: start;
+  padding: 3px 6px;
+  border: 1px solid #c8c8c2;
+  border-radius: 5px;
+  background: #fff;
+  box-shadow: 0 1px 0 #d8d8d2;
+  color: #30302d;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.gesture-guide > header kbd {
+  border-color: #555;
+  background: #242424;
+  box-shadow: none;
+  color: #fff;
+}
+
+.gesture-guide-row:first-of-type span {
+  font-size: 8px;
 }
 
 .canvas-hint {
@@ -1117,15 +1183,20 @@ button {
     right: 18px;
     bottom: 65px;
     left: 18px;
-    grid-template-columns: repeat(2, 1fr);
+    width: auto;
+    max-height: 68vh;
+    overflow-y: auto;
   }
 
-  .gesture-guide div:nth-child(2) {
-    border-right: 0;
+  .gesture-guide-row {
+    grid-template-columns: 58px 1fr;
+    gap: 4px 10px;
+    padding: 8px 12px;
   }
 
-  .gesture-guide div:nth-child(-n + 2) {
-    border-bottom: 1px solid #d8d8d2;
+  .gesture-guide-row strong,
+  .gesture-guide-row kbd {
+    grid-column: 2;
   }
 }
 

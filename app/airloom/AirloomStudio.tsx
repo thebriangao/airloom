@@ -7,7 +7,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AirScene, type SnapKind } from "./AirScene";
 import { SuddenSoundDetector } from "./audioGesture";
@@ -92,7 +94,7 @@ const palmCenter = (landmarks: Landmark[]) => {
 };
 
 export function AirloomStudio() {
-  const stageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sideCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -140,6 +142,23 @@ export function AirloomStudio() {
   const snapKindRef = useRef<SnapKind>("none");
   const lastSizeTickRef = useRef(4);
   const pointerDrawingRef = useRef(false);
+  const pointerHoverActiveRef = useRef(false);
+  const pointerObjectGrabRef = useRef(false);
+  const pointerGrabDepthRef = useRef(0);
+  const pointerNavigationRef = useRef<{
+    mode: "pan" | "orbit";
+    x: number;
+    y: number;
+  } | null>(null);
+  const lastPointerPositionRef = useRef<Point3 | null>(null);
+  const pointerPressRef = useRef<{
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const pointerClickStrokeCountRef = useRef(0);
+  const lastPointerClickAtRef = useRef(-Infinity);
+  const lastPointerClickPositionRef = useRef<Point3 | null>(null);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraError, setCameraError] = useState("");
@@ -414,16 +433,100 @@ export function AirloomStudio() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "m") toggleMenu();
-      if (event.key.toLowerCase() === "z") {
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        ["INPUT", "SELECT", "TEXTAREA"].includes(target?.tagName ?? "")
+      ) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      let handled = true;
+
+      if (key === "m" && !event.repeat) {
+        toggleMenu();
+      } else if (key === "e" && !event.repeat) {
+        toggleEraser();
+      } else if (key === "b" && eraserEnabledRef.current) {
+        toggleEraser();
+      } else if (key === "z") {
         releaseObjectGrab();
         sceneRef.current?.undo();
+      } else if (key === "r") {
+        releaseObjectGrab();
+        sceneRef.current?.resetView();
+      } else if (key === "[" || key === "]") {
+        const direction = key === "]" ? 1 : -1;
+        selectColor(
+          (colorIndexRef.current + direction + AIRLOOM_COLORS.length) %
+            AIRLOOM_COLORS.length,
+        );
+      } else if (key === "," || key === ".") {
+        const direction = key === "." ? 0.045 : -0.045;
+        if (eraserEnabledRef.current) {
+          selectEraserThickness(
+            eraserThicknessRef.current + direction,
+          );
+        } else {
+          selectThickness(thicknessRef.current + direction);
+        }
+      } else if (key === "arrowleft" || key === "a") {
+        if (event.shiftKey) {
+          sceneRef.current?.orbit(-0.03, 0, 0);
+        } else {
+          sceneRef.current?.pan(-0.035, 0);
+        }
+      } else if (key === "arrowright" || key === "d") {
+        if (event.shiftKey) {
+          sceneRef.current?.orbit(0.03, 0, 0);
+        } else {
+          sceneRef.current?.pan(0.035, 0);
+        }
+      } else if (key === "arrowup" || key === "w") {
+        if (event.shiftKey) {
+          sceneRef.current?.orbit(0, -0.03, 0);
+        } else {
+          sceneRef.current?.pan(0, -0.035);
+        }
+      } else if (key === "arrowdown" || key === "s") {
+        if (event.shiftKey) {
+          sceneRef.current?.orbit(0, 0.03, 0);
+        } else {
+          sceneRef.current?.pan(0, 0.035);
+        }
+      } else if (key === "j") {
+        sceneRef.current?.orbit(-0.03, 0, 0);
+      } else if (key === "l") {
+        sceneRef.current?.orbit(0.03, 0, 0);
+      } else if (key === "i") {
+        sceneRef.current?.orbit(0, -0.03, 0);
+      } else if (key === "k") {
+        sceneRef.current?.orbit(0, 0.03, 0);
+      } else if (key === "pageup" || key === "+") {
+        sceneRef.current?.orbit(0, 0, 0.022);
+      } else if (key === "pagedown" || key === "-") {
+        sceneRef.current?.orbit(0, 0, -0.022);
+      } else if (key === "?" || key === "h") {
+        setHelpOpen((value) => !value);
+      } else if (event.key === "Escape") {
+        releaseObjectGrab();
+        if (menuOpenRef.current) toggleMenu();
+      } else {
+        handled = false;
       }
-      if (event.key === "Escape" && menuOpenRef.current) toggleMenu();
+
+      if (handled) event.preventDefault();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [releaseObjectGrab, toggleMenu]);
+  }, [
+    releaseObjectGrab,
+    selectColor,
+    selectEraserThickness,
+    selectThickness,
+    toggleEraser,
+    toggleMenu,
+  ]);
 
   const applyToolAtPoint = useCallback((point: Parameters<AirScene["addPoint"]>[0]) => {
     if (eraserEnabledRef.current) {
@@ -512,6 +615,13 @@ export function AirloomStudio() {
 
   const processHands = useCallback(
     (hands: Landmark[][], timestamp: number) => {
+      if (
+        pointerDrawingRef.current ||
+        pointerObjectGrabRef.current ||
+        pointerNavigationRef.current
+      ) {
+        return;
+      }
       if (detectClap(hands, timestamp)) {
         sceneRef.current?.endStroke();
         releaseObjectGrab();
@@ -540,10 +650,12 @@ export function AirloomStudio() {
           (result.indexTip.z - filteredTipRef.current.z) * 0.4;
       }
       const filteredTip = filteredTipRef.current;
-      if (result.brushHover && !menuOpenRef.current) {
-        showHoverCursor(filteredTip);
-      } else {
-        hideHoverCursor();
+      if (!pointerHoverActiveRef.current) {
+        if (result.brushHover && !menuOpenRef.current) {
+          showHoverCursor(filteredTip);
+        } else {
+          hideHoverCursor();
+        }
       }
       if (!filteredGrabRef.current) {
         filteredGrabRef.current = { ...result.grabPoint };
@@ -909,7 +1021,7 @@ export function AirloomStudio() {
     updateGesture("draw");
   };
 
-  const pointerPosition = (event: ReactPointerEvent<HTMLDivElement>) => {
+  const pointerPosition = (event: ReactPointerEvent<HTMLElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
       x: (event.clientX - rect.left) / rect.width,
@@ -918,38 +1030,236 @@ export function AirloomStudio() {
     };
   };
 
+  const pointerInHandSpace = (pointer: Point3) => ({
+    ...pointer,
+    x: 1 - pointer.x,
+  });
+
   const handleCanvasPointerDown = (
-    event: ReactPointerEvent<HTMLDivElement>,
+    event: ReactPointerEvent<HTMLElement>,
   ) => {
-    if (!demoMode || menuOpenRef.current) return;
-    // The stage owns mouse drawing, but its floating controls are children.
-    // Never capture a press that began on a button or another overlay.
+    if (menuOpenRef.current) return;
     if (event.target !== event.currentTarget) return;
+    const pointer = pointerPosition(event);
+    const handPointer = pointerInHandSpace(pointer);
+    lastPointerPositionRef.current = pointer;
+    pointerHoverActiveRef.current = false;
+    hideHoverCursor();
+    previousControlRef.current = null;
+
+    if (event.button === 2) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerNavigationRef.current = {
+        mode: "orbit",
+        x: pointer.x,
+        y: pointer.y,
+      };
+      return;
+    }
+    if (event.button === 1) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerNavigationRef.current = {
+        mode: "pan",
+        x: pointer.x,
+        y: pointer.y,
+      };
+      return;
+    }
+    if (event.button !== 0) return;
+
+    if (event.shiftKey) {
+      releaseObjectGrab();
+      const selected = sceneRef.current?.beginObjectGrab(handPointer);
+      if (!selected) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerObjectGrabRef.current = true;
+      objectGrabActiveRef.current = true;
+      pointerGrabDepthRef.current = 0;
+      setObjectGrabSelected(true);
+      updateSnapKind("none");
+      return;
+    }
+
+    const now = performance.now();
+    const previousClick = lastPointerClickPositionRef.current;
+    const repeatedClick =
+      now - lastPointerClickAtRef.current < 380 &&
+      previousClick !== null &&
+      Math.hypot(
+        pointer.x - previousClick.x,
+        pointer.y - previousClick.y,
+      ) < 0.025;
+    lastPointerClickAtRef.current = now;
+    lastPointerClickPositionRef.current = pointer;
+    if (repeatedClick || event.detail > 1) return;
+
+    pointerClickStrokeCountRef.current = 1;
+    pointerPressRef.current = {
+      x: pointer.x,
+      y: pointer.y,
+      moved: false,
+    };
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerDrawingRef.current = true;
-    const pointer = pointerPosition(event);
+    sceneRef.current?.endStroke();
     const point = sceneRef.current?.normalizedToArtwork(
-      { ...pointer, x: 1 - pointer.x },
+      handPointer,
       0,
     );
     if (point) applyToolAtPoint(point);
   };
 
   const handleCanvasPointerMove = (
-    event: ReactPointerEvent<HTMLDivElement>,
+    event: ReactPointerEvent<HTMLElement>,
   ) => {
-    if (!pointerDrawingRef.current || !demoMode) return;
     const pointer = pointerPosition(event);
+    const handPointer = pointerInHandSpace(pointer);
+    lastPointerPositionRef.current = pointer;
+
+    if (pointerObjectGrabRef.current) {
+      updateSnapKind(
+        sceneRef.current?.moveObjectGrab(
+          handPointer,
+          pointerGrabDepthRef.current,
+        ) ?? "none",
+      );
+      return;
+    }
+
+    const navigation = pointerNavigationRef.current;
+    if (navigation) {
+      const deltaX = pointer.x - navigation.x;
+      const deltaY = pointer.y - navigation.y;
+      if (navigation.mode === "pan") {
+        sceneRef.current?.pan(deltaX, deltaY);
+      } else {
+        sceneRef.current?.orbit(deltaX, deltaY, 0);
+      }
+      navigation.x = pointer.x;
+      navigation.y = pointer.y;
+      return;
+    }
+
+    if (!pointerDrawingRef.current) {
+      if (
+        event.pointerType !== "touch" &&
+        event.target === event.currentTarget &&
+        !menuOpenRef.current
+      ) {
+        pointerHoverActiveRef.current = true;
+        showHoverCursor(handPointer);
+      } else {
+        pointerHoverActiveRef.current = false;
+        hideHoverCursor();
+      }
+      return;
+    }
+
+    const press = pointerPressRef.current;
+    if (
+      press &&
+      Math.hypot(pointer.x - press.x, pointer.y - press.y) > 0.008
+    ) {
+      press.moved = true;
+      pointerClickStrokeCountRef.current = 0;
+    }
     const point = sceneRef.current?.normalizedToArtwork(
-      { ...pointer, x: 1 - pointer.x },
+      handPointer,
       0,
     );
     if (point) applyToolAtPoint(point);
   };
 
-  const handleCanvasPointerUp = () => {
+  const handleCanvasPointerUp = (
+    event: ReactPointerEvent<HTMLElement>,
+    cancelled = false,
+  ) => {
+    if (pointerObjectGrabRef.current) {
+      pointerObjectGrabRef.current = false;
+      releaseObjectGrab();
+    }
+    pointerNavigationRef.current = null;
     pointerDrawingRef.current = false;
+    pointerPressRef.current = null;
     sceneRef.current?.endStroke();
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (
+      !cancelled &&
+      event.pointerType !== "touch" &&
+      !menuOpenRef.current
+    ) {
+      const pointer = pointerPosition(event);
+      lastPointerPositionRef.current = pointer;
+      pointerHoverActiveRef.current = true;
+      showHoverCursor(pointerInHandSpace(pointer));
+    } else {
+      pointerHoverActiveRef.current = false;
+      hideHoverCursor();
+    }
+  };
+
+  const handleCanvasDoubleClick = (
+    event: ReactMouseEvent<HTMLElement>,
+  ) => {
+    if (event.target !== event.currentTarget || menuOpenRef.current) return;
+    event.preventDefault();
+    if (
+      !eraserEnabledRef.current &&
+      pointerClickStrokeCountRef.current > 0
+    ) {
+      sceneRef.current?.undo();
+    }
+    pointerClickStrokeCountRef.current = 0;
+    toggleEraser();
+  };
+
+  const handleCanvasWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget || menuOpenRef.current) return;
+    event.preventDefault();
+
+    if (pointerObjectGrabRef.current && lastPointerPositionRef.current) {
+      pointerGrabDepthRef.current = clamp(
+        pointerGrabDepthRef.current - event.deltaY * 0.0025,
+        -2.15,
+        2.15,
+      );
+      updateSnapKind(
+        sceneRef.current?.moveObjectGrab(
+          pointerInHandSpace(lastPointerPositionRef.current),
+          pointerGrabDepthRef.current,
+        ) ?? "none",
+      );
+    } else if (event.ctrlKey) {
+      sceneRef.current?.orbit(0, 0, -event.deltaY * 0.0007);
+    } else if (event.altKey || event.shiftKey) {
+      sceneRef.current?.orbit(
+        event.deltaX * 0.0012,
+        event.deltaY * 0.0012,
+        0,
+      );
+    } else {
+      sceneRef.current?.pan(
+        -event.deltaX * 0.0012,
+        event.deltaY * 0.0012,
+      );
+    }
+  };
+
+  const handleCanvasPointerLeave = () => {
+    if (
+      pointerDrawingRef.current ||
+      pointerObjectGrabRef.current ||
+      pointerNavigationRef.current
+    ) {
+      return;
+    }
+    pointerHoverActiveRef.current = false;
+    hideHoverCursor();
   };
 
   const exportArtwork = async () => {
@@ -1003,7 +1313,13 @@ export function AirloomStudio() {
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerUp}
-        onPointerCancel={handleCanvasPointerUp}
+        onPointerCancel={(event) => handleCanvasPointerUp(event, true)}
+        onPointerLeave={handleCanvasPointerLeave}
+        onDoubleClick={handleCanvasDoubleClick}
+        onWheel={handleCanvasWheel}
+        onContextMenu={(event) => {
+          if (event.target === event.currentTarget) event.preventDefault();
+        }}
       >
         <canvas ref={canvasRef} className="air-canvas" />
         <div
@@ -1339,39 +1655,41 @@ export function AirloomStudio() {
 
         {helpOpen && (
           <aside className="gesture-guide">
-            <div>
-              <span>1</span>
-              <strong>Pinch draw</strong>
-            </div>
-            <div>
-              <span>2</span>
-              <strong>Pan</strong>
-            </div>
-            <div>
-              <span>3</span>
-              <strong>Orbit + zoom</strong>
-            </div>
-            <div>
-              <span>✦</span>
-              <strong>Snap + sound</strong>
-            </div>
-            <div>
-              <span>◉</span>
-              <strong>Clap eraser</strong>
-            </div>
-            <div>
-              <span>5</span>
-              <strong>Pinch all tips to move</strong>
-            </div>
+            <header>
+              <div>
+                <span>CONTROL MAP</span>
+                <strong>HAND · MOUSE / TRACKPAD · KEYBOARD</strong>
+              </div>
+              <kbd>?</kbd>
+            </header>
+            {[
+              ["HOVER", "Thumb + index apart", "Mouse hover", "-"],
+              ["DRAW", "Thumb + index pinch", "Left-drag", "B = brush"],
+              ["PAN", "Two fingers", "Two-finger swipe / middle-drag", "Arrows / WASD"],
+              ["ORBIT", "Three fingers", "⌥ or ⇧ + swipe / right-drag", "⇧ + arrows / IJKL"],
+              ["ZOOM", "Three fingers in / out", "Trackpad pinch", "PgUp / PgDn"],
+              ["PALETTE", "Snap + sound", "Click side tab", "M"],
+              ["COLOR", "Fist + move", "Click a swatch", "[ / ]"],
+              ["SIZE", "Open palm + move", "Drag the slider", ", / ."],
+              ["ERASER", "Clap + sound", "Double-click canvas", "E / B"],
+              ["MOVE", "Five fingertips", "⇧ + drag · wheel for depth", "Shift + mouse"],
+            ].map(([action, hand, pointer, keyboard]) => (
+              <div className="gesture-guide-row" key={action}>
+                <span>{action}</span>
+                <b>{hand}</b>
+                <strong>{pointer}</strong>
+                <kbd>{keyboard}</kbd>
+              </div>
+            ))}
           </aside>
         )}
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "Pinch to draw · Side view shows depth · Touch all five fingertips to move and snap objects"
+            ? "Pinch or left-drag to draw · Two-finger swipe pans · Press ? for every control"
             : cameraState === "calibrating"
               ? "Camera ready · Loading hand tracking…"
-            : "Draw with your mouse now, or enable the camera and microphone above"}
+            : "Left-drag to draw · Double-click toggles eraser · Press ? for every control"}
         </p>
       </section>
     </main>
