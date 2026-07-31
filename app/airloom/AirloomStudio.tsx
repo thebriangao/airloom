@@ -96,6 +96,7 @@ export function AirloomStudio() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sideCanvasRef = useRef<HTMLCanvasElement>(null);
+  const hoverCursorRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -156,6 +157,30 @@ export function AirloomStudio() {
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
+
+  const hideHoverCursor = useCallback(() => {
+    if (hoverCursorRef.current) {
+      hoverCursorRef.current.style.opacity = "0";
+    }
+  }, []);
+
+  const showHoverCursor = useCallback((tip: Point3) => {
+    const cursor = hoverCursorRef.current;
+    const stage = stageRef.current;
+    if (!cursor || !stage) return;
+    const radius = eraserEnabledRef.current
+      ? eraserRadiusFromThickness(eraserThicknessRef.current)
+      : radiusFromThickness(thicknessRef.current);
+    const visibleWorldHeight =
+      2 * 7 * Math.tan((48 * Math.PI) / 360);
+    const pixelsPerWorld = stage.clientHeight / visibleWorldHeight;
+    const diameter = clamp(radius * 2 * pixelsPerWorld, 4, 170);
+    cursor.style.left = `${(1 - tip.x) * 100}%`;
+    cursor.style.top = `${tip.y * 100}%`;
+    cursor.style.width = `${diameter}px`;
+    cursor.style.height = `${diameter}px`;
+    cursor.style.opacity = "1";
+  }, []);
 
   const updateSnapKind = useCallback((next: SnapKind) => {
     if (snapKindRef.current === next) return;
@@ -280,9 +305,10 @@ export function AirloomStudio() {
     setEraserEnabled(next);
     sceneRef.current?.endStroke();
     releaseObjectGrab();
+    hideHoverCursor();
     previousControlRef.current = null;
     playSound(next ? "eraserOn" : "eraserOff");
-  }, [playSound, releaseObjectGrab]);
+  }, [hideHoverCursor, playSound, releaseObjectGrab]);
 
   const toggleMenu = useCallback(() => {
     const next = !menuOpenRef.current;
@@ -290,9 +316,10 @@ export function AirloomStudio() {
     setMenuOpen(next);
     sceneRef.current?.endStroke();
     releaseObjectGrab();
+    hideHoverCursor();
     previousControlRef.current = null;
     playSound(next ? "open" : "close");
-  }, [playSound, releaseObjectGrab]);
+  }, [hideHoverCursor, playSound, releaseObjectGrab]);
 
   const confirmSnap = useCallback(
     (timestamp: number) => {
@@ -488,11 +515,13 @@ export function AirloomStudio() {
       if (detectClap(hands, timestamp)) {
         sceneRef.current?.endStroke();
         releaseObjectGrab();
+        hideHoverCursor();
         return;
       }
       if (hands.length !== 1) {
         sceneRef.current?.endStroke();
         releaseObjectGrab();
+        hideHoverCursor();
         previousControlRef.current = null;
         return;
       }
@@ -511,6 +540,11 @@ export function AirloomStudio() {
           (result.indexTip.z - filteredTipRef.current.z) * 0.4;
       }
       const filteredTip = filteredTipRef.current;
+      if (result.brushHover && !menuOpenRef.current) {
+        showHoverCursor(filteredTip);
+      } else {
+        hideHoverCursor();
+      }
       if (!filteredGrabRef.current) {
         filteredGrabRef.current = { ...result.grabPoint };
       } else {
@@ -672,10 +706,12 @@ export function AirloomStudio() {
       applyToolAtPoint,
       confirmSnap,
       detectClap,
+      hideHoverCursor,
       releaseObjectGrab,
       selectColor,
       selectEraserThickness,
       selectThickness,
+      showHoverCursor,
       updateGesture,
       updateSnapKind,
     ],
@@ -725,7 +761,8 @@ export function AirloomStudio() {
     depthCalibrationRef.current = null;
     lastHandsSeenAtRef.current = -Infinity;
     releaseObjectGrab();
-  }, [releaseObjectGrab]);
+    hideHoverCursor();
+  }, [hideHoverCursor, releaseObjectGrab]);
 
   useEffect(() => stopCamera, [stopCamera]);
 
@@ -758,6 +795,7 @@ export function AirloomStudio() {
           filteredGrabRef.current = null;
           depthCalibrationRef.current = null;
           releaseObjectGrab();
+          hideHoverCursor();
           updateGesture("none");
         }
       }
@@ -765,7 +803,13 @@ export function AirloomStudio() {
       animationRef.current = window.requestAnimationFrame(loop);
     };
     animationRef.current = window.requestAnimationFrame(loop);
-  }, [processHands, releaseObjectGrab, sampleMicrophone, updateGesture]);
+  }, [
+    hideHoverCursor,
+    processHands,
+    releaseObjectGrab,
+    sampleMicrophone,
+    updateGesture,
+  ]);
 
   const startCamera = async () => {
     setCameraState("requesting");
@@ -962,6 +1006,14 @@ export function AirloomStudio() {
         onPointerCancel={handleCanvasPointerUp}
       >
         <canvas ref={canvasRef} className="air-canvas" />
+        <div
+          ref={hoverCursorRef}
+          className={`brush-hover-cursor ${eraserEnabled ? "is-eraser" : ""}`}
+          style={{
+            color: eraserEnabled ? "#111111" : selectedColor.value,
+          }}
+          aria-hidden="true"
+        />
         <aside
           className={`side-view-inset ${hasArtwork ? "is-visible" : ""}`}
           aria-label="Right side view, locked ninety degrees from the main view"

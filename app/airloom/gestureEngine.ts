@@ -48,12 +48,14 @@ function fingertipsTogether(landmarks: Landmark[]) {
     distance2D(landmarks[5], landmarks[17]),
   );
   let maximumSpread = 0;
+  let maximumFingerSpread = 0;
   for (let first = 0; first < fingertips.length; first += 1) {
     for (let second = first + 1; second < fingertips.length; second += 1) {
-      maximumSpread = Math.max(
-        maximumSpread,
-        distance2D(fingertips[first], fingertips[second]),
-      );
+      const separation = distance2D(fingertips[first], fingertips[second]);
+      maximumSpread = Math.max(maximumSpread, separation);
+      if (first > 0) {
+        maximumFingerSpread = Math.max(maximumFingerSpread, separation);
+      }
     }
   }
   const center = midpoint(fingertips);
@@ -61,9 +63,10 @@ function fingertipsTogether(landmarks: Landmark[]) {
     distance2D(center, landmarks[0]) > palmSpan * 1.02;
   const spreadRatio = maximumSpread / palmSpan;
   return {
-    active: spreadRatio < 0.9 && reachesPastPalm,
-    tightIntent: spreadRatio < 1.18 && reachesPastPalm,
+    active: spreadRatio < 0.62 && reachesPastPalm,
+    tightIntent: spreadRatio < 0.82 && reachesPastPalm,
     spreadRatio,
+    fingerSpreadRatio: maximumFingerSpread / palmSpan,
     reachesPastPalm,
     center,
   };
@@ -143,21 +146,22 @@ export class GestureEngine {
   private objectGrabCandidateAt = 0;
   private objectGrabReleaseAt = 0;
   private lastGrabPoint?: Point3;
-  private previousGrabSpread = Infinity;
+  private previousFingerSpread = Infinity;
   private grabIntentUntil = 0;
 
   update(landmarks: Landmark[], timestamp: number): GestureResult {
     const { pose: rawPose, fingerCount } = classifyPose(landmarks);
     const grab = fingertipsTogether(landmarks);
     const fingertipsConverging =
+      Number.isFinite(this.previousFingerSpread) &&
       grab.reachesPastPalm &&
-      grab.spreadRatio < 2.1 &&
-      this.previousGrabSpread - grab.spreadRatio > 0.055;
+      grab.fingerSpreadRatio < 1.8 &&
+      this.previousFingerSpread - grab.fingerSpreadRatio > 0.065;
     if (grab.active || grab.tightIntent || fingertipsConverging) {
       this.grabIntentUntil = timestamp + 190;
     }
     const grabIntent = grab.active || timestamp < this.grabIntentUntil;
-    this.previousGrabSpread = grab.spreadRatio;
+    this.previousFingerSpread = grab.fingerSpreadRatio;
 
     if (grab.active) {
       this.lastGrabPoint = { ...grab.center };
@@ -264,12 +268,21 @@ export class GestureEngine {
     }
 
     this.previousMiddleTip = { ...middleTip };
+    const brushHover =
+      !this.drawingPinch &&
+      !this.objectGrab &&
+      !grabIntent &&
+      thumbIndexRatio > 0.68 &&
+      rawPose !== "pan2d" &&
+      rawPose !== "orbit3d" &&
+      rawPose !== "fist";
 
     return {
       pose: this.objectGrab ? "grab" : this.stable,
       drawingPinch: this.drawingPinch,
       objectGrab: this.objectGrab,
       objectGrabIntent: grabIntent || this.objectGrab,
+      brushHover,
       snap,
       snapPose,
       fingerCount,
@@ -302,7 +315,7 @@ export class GestureEngine {
     this.objectGrabCandidateAt = 0;
     this.objectGrabReleaseAt = 0;
     this.lastGrabPoint = undefined;
-    this.previousGrabSpread = Infinity;
+    this.previousFingerSpread = Infinity;
     this.grabIntentUntil = 0;
   }
 }

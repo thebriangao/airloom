@@ -74,6 +74,31 @@ button {
   pointer-events: none;
 }
 
+.brush-hover-cursor {
+  position: absolute;
+  z-index: 6;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(251, 251, 248, 0.92),
+    0 0 0 2px rgba(17, 17, 17, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition:
+    opacity 55ms linear,
+    width 80ms ease,
+    height 80ms ease;
+  will-change: left, top, width, height, opacity;
+}
+
+.brush-hover-cursor.is-eraser {
+  border-style: dashed;
+  background: rgba(251, 251, 248, 0.64);
+}
+
 .floating-brand {
   position: absolute;
   z-index: 8;
