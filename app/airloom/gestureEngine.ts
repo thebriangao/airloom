@@ -5,14 +5,14 @@ import type {
   Point3,
 } from "./types";
 
-const HOLD_MS = 115;
+const HOLD_MS = 28;
 const DRAW_PINCH_START_RATIO = 0.52;
 const DRAW_PINCH_RELEASE_RATIO = 0.9;
 const DRAW_PINCH_START_DISTANCE = 0.06;
 const DRAW_PINCH_RELEASE_DISTANCE = 0.085;
-const DRAW_PINCH_RELEASE_HOLD_MS = 240;
-const OBJECT_GRAB_HOLD_MS = 45;
-const OBJECT_GRAB_RELEASE_MS = 150;
+const DRAW_PINCH_RELEASE_HOLD_MS = 28;
+const OBJECT_GRAB_HOLD_MS = 28;
+const OBJECT_GRAB_RELEASE_MS = 70;
 const SNAP_COOLDOWN_MS = 900;
 const SNAP_WINDOW_MS = 650;
 
@@ -158,7 +158,7 @@ export class GestureEngine {
       grab.fingerSpreadRatio < 1.8 &&
       this.previousFingerSpread - grab.fingerSpreadRatio > 0.065;
     if (grab.active || grab.tightIntent || fingertipsConverging) {
-      this.grabIntentUntil = timestamp + 190;
+      this.grabIntentUntil = timestamp + 80;
     }
     const grabIntent = grab.active || timestamp < this.grabIntentUntil;
     this.previousFingerSpread = grab.fingerSpreadRatio;
@@ -203,7 +203,7 @@ export class GestureEngine {
     const thumbIndexDistance = distance2D(landmarks[4], landmarks[8]);
     const thumbIndexRatio = thumbIndexDistance / palmSpan2D;
     this.filteredThumbIndexRatio =
-      this.filteredThumbIndexRatio * 0.78 + thumbIndexRatio * 0.22;
+      this.filteredThumbIndexRatio * 0.45 + thumbIndexRatio * 0.55;
     const thumbMiddleRatio =
       distance(landmarks[4], landmarks[12]) / palmSpan;
     const middleTip = landmarks[12];

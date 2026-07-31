@@ -59,6 +59,20 @@ const stableDelta = (value: number, deadZone: number) =>
   Math.abs(value) < deadZone ? 0 : value;
 const HAND_TRACKING_GRACE_MS = 350;
 
+const responsiveBlend = (
+  distance: number,
+  elapsedSeconds: number,
+  restingBlend: number,
+  fullResponseSpeed: number,
+) =>
+  clamp(
+    restingBlend +
+      (distance / Math.max(1 / 120, elapsedSeconds) / fullResponseSpeed) *
+        (1 - restingBlend),
+    restingBlend,
+    1,
+  );
+
 type DepthCalibration = {
   handScale: number;
   fingerOffset: number;
@@ -101,11 +115,12 @@ export function AirloomStudio() {
   const hoverCursorRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AirScene | null>(null);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+  const handLandmarkerPromiseRef = useRef<Promise<HandLandmarker> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const microphoneAnalyserRef = useRef<AnalyserNode | null>(null);
-  const microphoneSamplesRef = useRef(new Float32Array(1024));
+  const microphoneSamplesRef = useRef(new Float32Array(512));
   const suddenSoundDetectorRef = useRef(new SuddenSoundDetector());
   const lastAudioTransientRef = useRef(-Infinity);
   const lastVisualSnapRef = useRef(-Infinity);
@@ -118,9 +133,12 @@ export function AirloomStudio() {
     timestamp: number;
     approachAt: number;
   } | null>(null);
-  const animationRef = useRef(0);
+  const trackingFrameRef = useRef(0);
+  const audioAnimationRef = useRef(0);
+  const trackingActiveRef = useRef(false);
   const lastVideoTimeRef = useRef(-1);
   const lastHandsSeenAtRef = useRef(-Infinity);
+  const lastHandSampleAtRef = useRef(-Infinity);
   const gestureEngineRef = useRef(new GestureEngine());
   const gestureRef = useRef<HandPose>("none");
   const previousControlRef = useRef<{
@@ -652,16 +670,38 @@ export function AirloomStudio() {
       const landmarks = hands[0];
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
-      const tipResponsiveness = result.drawingPinch ? 0.7 : 0.42;
+      const elapsedSeconds = Number.isFinite(lastHandSampleAtRef.current)
+        ? clamp(
+            (timestamp - lastHandSampleAtRef.current) / 1000,
+            1 / 120,
+            0.1,
+          )
+        : 1 / 60;
+      lastHandSampleAtRef.current = timestamp;
       if (!filteredTipRef.current) {
         filteredTipRef.current = { ...result.indexTip };
       } else {
+        const tipBlend = responsiveBlend(
+          Math.hypot(
+            result.indexTip.x - filteredTipRef.current.x,
+            result.indexTip.y - filteredTipRef.current.y,
+          ),
+          elapsedSeconds,
+          result.drawingPinch ? 0.62 : 0.5,
+          1.2,
+        );
+        const tipDepthBlend = responsiveBlend(
+          Math.abs(result.indexTip.z - filteredTipRef.current.z),
+          elapsedSeconds,
+          0.42,
+          0.65,
+        );
         filteredTipRef.current.x +=
-          (result.indexTip.x - filteredTipRef.current.x) * tipResponsiveness;
+          (result.indexTip.x - filteredTipRef.current.x) * tipBlend;
         filteredTipRef.current.y +=
-          (result.indexTip.y - filteredTipRef.current.y) * tipResponsiveness;
+          (result.indexTip.y - filteredTipRef.current.y) * tipBlend;
         filteredTipRef.current.z +=
-          (result.indexTip.z - filteredTipRef.current.z) * 0.4;
+          (result.indexTip.z - filteredTipRef.current.z) * tipDepthBlend;
       }
       const filteredTip = filteredTipRef.current;
       if (!pointerHoverActiveRef.current) {
@@ -674,12 +714,27 @@ export function AirloomStudio() {
       if (!filteredGrabRef.current) {
         filteredGrabRef.current = { ...result.grabPoint };
       } else {
+        const grabBlend = responsiveBlend(
+          Math.hypot(
+            result.grabPoint.x - filteredGrabRef.current.x,
+            result.grabPoint.y - filteredGrabRef.current.y,
+          ),
+          elapsedSeconds,
+          0.5,
+          1,
+        );
+        const grabDepthBlend = responsiveBlend(
+          Math.abs(result.grabPoint.z - filteredGrabRef.current.z),
+          elapsedSeconds,
+          0.38,
+          0.55,
+        );
         filteredGrabRef.current.x +=
-          (result.grabPoint.x - filteredGrabRef.current.x) * 0.28;
+          (result.grabPoint.x - filteredGrabRef.current.x) * grabBlend;
         filteredGrabRef.current.y +=
-          (result.grabPoint.y - filteredGrabRef.current.y) * 0.28;
+          (result.grabPoint.y - filteredGrabRef.current.y) * grabBlend;
         filteredGrabRef.current.z +=
-          (result.grabPoint.z - filteredGrabRef.current.z) * 0.22;
+          (result.grabPoint.z - filteredGrabRef.current.z) * grabDepthBlend;
       }
 
       if (
@@ -726,15 +781,34 @@ export function AirloomStudio() {
       }
 
       const previous = previousControlRef.current;
+      const controlBlend = previous
+        ? responsiveBlend(
+            Math.hypot(
+              result.palm.x - previous.x,
+              result.palm.y - previous.y,
+            ),
+            elapsedSeconds,
+            0.5,
+            0.85,
+          )
+        : 1;
+      const scaleBlend = previous
+        ? responsiveBlend(
+            Math.abs(result.handScale - previous.scale),
+            elapsedSeconds,
+            0.44,
+            0.28,
+          )
+        : 1;
       const controlSample =
         previous?.pose === controlPose
           ? {
               pose: controlPose,
-              x: previous.x + (result.palm.x - previous.x) * 0.22,
-              y: previous.y + (result.palm.y - previous.y) * 0.22,
+              x: previous.x + (result.palm.x - previous.x) * controlBlend,
+              y: previous.y + (result.palm.y - previous.y) * controlBlend,
               scale:
                 previous.scale +
-                (result.handScale - previous.scale) * 0.18,
+                (result.handScale - previous.scale) * scaleBlend,
             }
           : {
               pose: controlPose,
@@ -767,10 +841,18 @@ export function AirloomStudio() {
               Math.max(0.025, result.handScale) /
                 Math.max(0.025, grabCalibration.handScale),
             ) * 4.6;
+          const grabDepthTarget = clamp(trackedDepth, -2.15, 2.15);
+          const grabDepthBlend = responsiveBlend(
+            Math.abs(
+              grabDepthTarget - grabCalibration.filteredDepth,
+            ),
+            elapsedSeconds,
+            0.42,
+            2,
+          );
           grabCalibration.filteredDepth +=
-            (clamp(trackedDepth, -2.15, 2.15) -
-              grabCalibration.filteredDepth) *
-            0.2;
+            (grabDepthTarget - grabCalibration.filteredDepth) *
+            grabDepthBlend;
           updateSnapKind(
             sceneRef.current?.moveObjectGrab(
               filteredGrabRef.current,
@@ -799,8 +881,14 @@ export function AirloomStudio() {
         }
         const calibration = depthCalibrationRef.current;
         const trackedDepth = brushDepth(result, calibration);
+        const depthBlend = responsiveBlend(
+          Math.abs(trackedDepth - calibration.filteredDepth),
+          elapsedSeconds,
+          0.46,
+          2,
+        );
         calibration.filteredDepth +=
-          (trackedDepth - calibration.filteredDepth) * 0.22;
+          (trackedDepth - calibration.filteredDepth) * depthBlend;
         const point = sceneRef.current?.normalizedToArtwork(
           filteredTip,
           calibration.filteredDepth,
@@ -843,6 +931,63 @@ export function AirloomStudio() {
     ],
   );
 
+  const prepareHandLandmarker = useCallback(() => {
+    if (handLandmarkerRef.current) {
+      return Promise.resolve(handLandmarkerRef.current);
+    }
+    if (handLandmarkerPromiseRef.current) {
+      return handLandmarkerPromiseRef.current;
+    }
+
+    const promise = (async () => {
+      const { FilesetResolver, HandLandmarker } = await import(
+        "@mediapipe/tasks-vision"
+      );
+      const vision = await FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
+      );
+      try {
+        return await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+          minHandDetectionConfidence: 0.52,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+      } catch {
+        return HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            delegate: "CPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 2,
+        });
+      }
+    })().then(
+      (landmarker) => {
+        handLandmarkerRef.current = landmarker;
+        return landmarker;
+      },
+      (error) => {
+        handLandmarkerPromiseRef.current = null;
+        throw error;
+      },
+    );
+    handLandmarkerPromiseRef.current = promise;
+    return promise;
+  }, []);
+
+  useEffect(() => {
+    void prepareHandLandmarker().catch(() => undefined);
+  }, [prepareHandLandmarker]);
+
   const setupMicrophone = useCallback(
     (stream: MediaStream) => {
       const context = primeAudio();
@@ -855,8 +1000,8 @@ export function AirloomStudio() {
       microphoneAnalyserRef.current?.disconnect();
       const source = context.createMediaStreamSource(stream);
       const analyser = context.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.1;
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0;
       source.connect(analyser);
       microphoneSourceRef.current = source;
       microphoneAnalyserRef.current = analyser;
@@ -867,7 +1012,10 @@ export function AirloomStudio() {
   );
 
   const stopCamera = useCallback(() => {
-    window.cancelAnimationFrame(animationRef.current);
+    trackingActiveRef.current = false;
+    window.cancelAnimationFrame(trackingFrameRef.current);
+    window.cancelAnimationFrame(audioAnimationRef.current);
+    videoRef.current?.cancelVideoFrameCallback?.(trackingFrameRef.current);
     microphoneSourceRef.current?.disconnect();
     microphoneAnalyserRef.current?.disconnect();
     microphoneSourceRef.current = null;
@@ -875,8 +1023,6 @@ export function AirloomStudio() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
-    handLandmarkerRef.current?.close();
-    handLandmarkerRef.current = null;
     gestureEngineRef.current.reset();
     clapContactRef.current = false;
     clapMotionRef.current = null;
@@ -886,15 +1032,46 @@ export function AirloomStudio() {
     filteredGrabRef.current = null;
     depthCalibrationRef.current = null;
     lastHandsSeenAtRef.current = -Infinity;
+    lastHandSampleAtRef.current = -Infinity;
     releaseObjectGrab();
     hideHoverCursor();
   }, [hideHoverCursor, releaseObjectGrab]);
 
-  useEffect(() => stopCamera, [stopCamera]);
+  useEffect(
+    () => () => {
+      stopCamera();
+      handLandmarkerRef.current?.close();
+      handLandmarkerRef.current = null;
+      handLandmarkerPromiseRef.current = null;
+    },
+    [stopCamera],
+  );
 
   const startTrackingLoop = useCallback(() => {
-    const loop = () => {
-      const timestamp = performance.now();
+    trackingActiveRef.current = true;
+
+    const handleMissingHands = (timestamp: number) => {
+      if (
+        timestamp - lastHandsSeenAtRef.current <=
+        HAND_TRACKING_GRACE_MS
+      ) {
+        return;
+      }
+      gestureEngineRef.current.reset();
+      clapContactRef.current = false;
+      sceneRef.current?.endStroke();
+      previousControlRef.current = null;
+      filteredTipRef.current = null;
+      filteredGrabRef.current = null;
+      depthCalibrationRef.current = null;
+      lastHandSampleAtRef.current = -Infinity;
+      releaseObjectGrab();
+      hideHoverCursor();
+      updateGesture("none");
+    };
+
+    const processVideoFrame = (timestamp: number) => {
+      if (!trackingActiveRef.current) return;
       const video = videoRef.current;
       const landmarker = handLandmarkerRef.current;
       if (
@@ -909,26 +1086,40 @@ export function AirloomStudio() {
         if (hands.length > 0) {
           lastHandsSeenAtRef.current = timestamp;
           processHands(hands, timestamp);
-        } else if (
-          timestamp - lastHandsSeenAtRef.current >
-          HAND_TRACKING_GRACE_MS
-        ) {
-          gestureEngineRef.current.reset();
-          clapContactRef.current = false;
-          sceneRef.current?.endStroke();
-          previousControlRef.current = null;
-          filteredTipRef.current = null;
-          filteredGrabRef.current = null;
-          depthCalibrationRef.current = null;
-          releaseObjectGrab();
-          hideHoverCursor();
-          updateGesture("none");
+        } else {
+          handleMissingHands(timestamp);
         }
       }
-      sampleMicrophone(timestamp);
-      animationRef.current = window.requestAnimationFrame(loop);
     };
-    animationRef.current = window.requestAnimationFrame(loop);
+
+    const scheduleVideoFrame = () => {
+      if (!trackingActiveRef.current) return;
+      const video = videoRef.current;
+      if (video?.requestVideoFrameCallback) {
+        trackingFrameRef.current = video.requestVideoFrameCallback(
+          (timestamp) => {
+            processVideoFrame(timestamp);
+            scheduleVideoFrame();
+          },
+        );
+      } else {
+        trackingFrameRef.current = window.requestAnimationFrame(
+          (timestamp) => {
+            processVideoFrame(timestamp);
+            scheduleVideoFrame();
+          },
+        );
+      }
+    };
+
+    const sampleAudio = (timestamp: number) => {
+      if (!trackingActiveRef.current) return;
+      sampleMicrophone(timestamp);
+      audioAnimationRef.current = window.requestAnimationFrame(sampleAudio);
+    };
+
+    scheduleVideoFrame();
+    audioAnimationRef.current = window.requestAnimationFrame(sampleAudio);
   }, [
     hideHoverCursor,
     processHands,
@@ -943,6 +1134,7 @@ export function AirloomStudio() {
     setDemoMode(false);
     try {
       primeAudio();
+      const landmarkerPromise = prepareHandLandmarker();
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error(
           "Camera access is unavailable here. Open Airloom in a current browser over HTTPS.",
@@ -951,8 +1143,9 @@ export function AirloomStudio() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: "user",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          frameRate: { ideal: 60 },
         },
         audio: {
           autoGainControl: true,
@@ -966,45 +1159,10 @@ export function AirloomStudio() {
       await videoRef.current.play();
       setupMicrophone(stream);
       setCameraState("calibrating");
-
-      const { FilesetResolver, HandLandmarker } = await import(
-        "@mediapipe/tasks-vision"
-      );
-
-      const vision = await FilesetResolver.forVisionTasks(
-        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.0/wasm",
-      );
-      try {
-        handLandmarkerRef.current = await HandLandmarker.createFromOptions(
-          vision,
-          {
-            baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-              delegate: "GPU",
-            },
-            runningMode: "VIDEO",
-            numHands: 2,
-            minHandDetectionConfidence: 0.58,
-            minHandPresenceConfidence: 0.55,
-            minTrackingConfidence: 0.55,
-          },
-        );
-      } catch {
-        handLandmarkerRef.current = await HandLandmarker.createFromOptions(
-          vision,
-          {
-            baseOptions: {
-              modelAssetPath:
-                "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
-              delegate: "CPU",
-            },
-            runningMode: "VIDEO",
-            numHands: 2,
-          },
-        );
-      }
+      await landmarkerPromise;
+      if (streamRef.current !== stream) return;
       lastVideoTimeRef.current = -1;
+      lastHandSampleAtRef.current = -Infinity;
       setCameraState("active");
       startTrackingLoop();
     } catch (error) {

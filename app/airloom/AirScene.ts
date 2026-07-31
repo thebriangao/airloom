@@ -773,17 +773,14 @@ export class AirScene {
     const previous = this.activeStroke.points.at(-1)!;
     const distance = point.distanceTo(previous);
     if (!Number.isFinite(distance)) return;
+    if (distance < 0.004) return;
 
-    const target =
-      distance > 0.32
-        ? previous
-            .clone()
-            .add(point.clone().sub(previous).setLength(0.32))
-        : point;
-    const smoothed = previous.clone().lerp(target, 0.68);
-    if (smoothed.distanceTo(previous) < 0.014) return;
-
-    this.activeStroke.points.push(smoothed);
+    const steps = Math.min(24, Math.max(1, Math.ceil(distance / 0.12)));
+    for (let step = 1; step <= steps; step += 1) {
+      this.activeStroke.points.push(
+        previous.clone().lerp(point, step / steps),
+      );
+    }
     this.rebuildStroke(this.activeStroke);
   }
 
@@ -833,6 +830,7 @@ export class AirScene {
   pan(deltaX: number, deltaY: number) {
     this.targetPosition.x += deltaX * 8;
     this.targetPosition.y -= deltaY * 8;
+    this.artwork.position.copy(this.targetPosition);
     this.sideBoundsDirty = true;
   }
 
@@ -848,6 +846,9 @@ export class AirScene {
       -4.6,
       4.6,
     );
+    this.artwork.position.copy(this.targetPosition);
+    this.artwork.rotation.x = this.targetRotation.x;
+    this.artwork.rotation.y = this.targetRotation.y;
     this.sideBoundsDirty = true;
   }
 
