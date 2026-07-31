@@ -154,6 +154,144 @@ function segmentsForPoints(
   return segments;
 }
 
+function stableCurvePoints(points: THREE.Vector3[], radius: number) {
+  if (points.length < 2) return points.map((point) => point.clone());
+
+  const sampled: THREE.Vector3[] = [];
+  const targetStep = THREE.MathUtils.clamp(radius * 0.8, 0.035, 0.085);
+
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const first = points[index];
+    const second = points[index + 1];
+    const before =
+      index > 0
+        ? points[index - 1]
+        : first.clone().multiplyScalar(2).sub(second);
+    const after =
+      index + 2 < points.length
+        ? points[index + 2]
+        : second.clone().multiplyScalar(2).sub(first);
+    const curve = new THREE.CatmullRomCurve3(
+      [before, first, second, after],
+      false,
+      "centripetal",
+    );
+    const subdivisions = THREE.MathUtils.clamp(
+      Math.ceil(first.distanceTo(second) / targetStep),
+      1,
+      8,
+    );
+    const start = index === 0 ? 0 : 1;
+
+    for (let step = start; step <= subdivisions; step += 1) {
+      const segmentProgress = step / subdivisions;
+      sampled.push(curve.getPoint((1 + segmentProgress) / 3));
+    }
+  }
+
+  return sampled;
+}
+
+function stableTubeGeometry(
+  points: THREE.Vector3[],
+  radius: number,
+  radialSegments = 8,
+) {
+  const path = stableCurvePoints(points, radius);
+  const geometry = new THREE.BufferGeometry();
+  if (path.length < 2) return geometry;
+
+  const tangents = path.map((point, index) => {
+    const before = path[Math.max(0, index - 1)];
+    const after = path[Math.min(path.length - 1, index + 1)];
+    const tangent = after.clone().sub(before);
+    if (tangent.lengthSq() < 0.0000001 && index > 0) {
+      return path[index].clone().sub(path[index - 1]).normalize();
+    }
+    return tangent.normalize();
+  });
+  const normals: THREE.Vector3[] = [];
+  const binormals: THREE.Vector3[] = [];
+  const firstTangent = tangents[0];
+  const reference =
+    Math.abs(firstTangent.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0);
+  normals.push(reference.cross(firstTangent).normalize());
+  binormals.push(firstTangent.clone().cross(normals[0]).normalize());
+
+  for (let index = 1; index < path.length; index += 1) {
+    const previousTangent = tangents[index - 1];
+    const tangent = tangents[index];
+    const normal = normals[index - 1].clone();
+    const axis = previousTangent.clone().cross(tangent);
+
+    if (axis.lengthSq() > 0.0000001) {
+      axis.normalize();
+      const angle = Math.acos(
+        THREE.MathUtils.clamp(previousTangent.dot(tangent), -1, 1),
+      );
+      normal.applyAxisAngle(axis, angle);
+    }
+
+    normal.addScaledVector(tangent, -normal.dot(tangent));
+    if (normal.lengthSq() < 0.0000001) {
+      normal.copy(binormals[index - 1]).cross(tangent);
+    }
+    normal.normalize();
+    normals.push(normal);
+    binormals.push(tangent.clone().cross(normal).normalize());
+  }
+
+  const positions: number[] = [];
+  const vertexNormals: number[] = [];
+  const indices: number[] = [];
+
+  for (let ring = 0; ring < path.length; ring += 1) {
+    for (let side = 0; side < radialSegments; side += 1) {
+      const angle = (side / radialSegments) * Math.PI * 2;
+      const radial = normals[ring]
+        .clone()
+        .multiplyScalar(Math.cos(angle))
+        .addScaledVector(binormals[ring], Math.sin(angle));
+      const vertex = path[ring].clone().addScaledVector(radial, radius);
+      positions.push(vertex.x, vertex.y, vertex.z);
+      vertexNormals.push(radial.x, radial.y, radial.z);
+    }
+  }
+
+  for (let ring = 0; ring < path.length - 1; ring += 1) {
+    for (let side = 0; side < radialSegments; side += 1) {
+      const nextSide = (side + 1) % radialSegments;
+      const current = ring * radialSegments + side;
+      const currentNext = ring * radialSegments + nextSide;
+      const following = (ring + 1) * radialSegments + side;
+      const followingNext = (ring + 1) * radialSegments + nextSide;
+      indices.push(
+        current,
+        currentNext,
+        following,
+        following,
+        currentNext,
+        followingNext,
+      );
+    }
+  }
+
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions, 3),
+  );
+  geometry.setAttribute(
+    "normal",
+    new THREE.Float32BufferAttribute(vertexNormals, 3),
+  );
+  geometry.setIndex(indices);
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 export function snapObjectTranslation(
   movingStrokes: THREE.Vector3[][],
   targetStrokes: THREE.Vector3[][],
@@ -389,18 +527,7 @@ export class AirScene {
     if (points.length === 1) {
       return new THREE.SphereGeometry(radius, 10, 10);
     }
-    const curvePoints =
-      points.length === 2
-        ? [points[0], points[0].clone().lerp(points[1], 0.5), points[1]]
-        : points;
-    const curve = new THREE.CatmullRomCurve3(curvePoints, false, "centripetal");
-    return new THREE.TubeGeometry(
-      curve,
-      Math.min(240, Math.max(8, Math.ceil(points.length * 1.6))),
-      radius,
-      8,
-      false,
-    );
+    return stableTubeGeometry(points, radius);
   }
 
   private createStroke(points: THREE.Vector3[], color: string, radius: number) {
