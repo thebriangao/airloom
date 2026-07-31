@@ -433,6 +433,7 @@ export function AirloomStudio() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
+      if (!demoMode) return;
       const target = event.target as HTMLElement | null;
       if (
         target?.isContentEditable ||
@@ -520,6 +521,7 @@ export function AirloomStudio() {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [
+    demoMode,
     releaseObjectGrab,
     selectColor,
     selectEraserThickness,
@@ -527,6 +529,18 @@ export function AirloomStudio() {
     toggleEraser,
     toggleMenu,
   ]);
+
+  useEffect(() => {
+    if (demoMode) return;
+    pointerDrawingRef.current = false;
+    pointerHoverActiveRef.current = false;
+    pointerObjectGrabRef.current = false;
+    pointerNavigationRef.current = null;
+    pointerPressRef.current = null;
+    sceneRef.current?.endStroke();
+    releaseObjectGrab();
+    hideHoverCursor();
+  }, [demoMode, hideHoverCursor, releaseObjectGrab]);
 
   const applyToolAtPoint = useCallback((point: Parameters<AirScene["addPoint"]>[0]) => {
     if (eraserEnabledRef.current) {
@@ -1038,6 +1052,7 @@ export function AirloomStudio() {
   const handleCanvasPointerDown = (
     event: ReactPointerEvent<HTMLElement>,
   ) => {
+    if (!demoMode) return;
     if (menuOpenRef.current) return;
     if (event.target !== event.currentTarget) return;
     const pointer = pointerPosition(event);
@@ -1115,6 +1130,7 @@ export function AirloomStudio() {
   const handleCanvasPointerMove = (
     event: ReactPointerEvent<HTMLElement>,
   ) => {
+    if (!demoMode) return;
     const pointer = pointerPosition(event);
     const handPointer = pointerInHandSpace(pointer);
     lastPointerPositionRef.current = pointer;
@@ -1177,6 +1193,7 @@ export function AirloomStudio() {
     event: ReactPointerEvent<HTMLElement>,
     cancelled = false,
   ) => {
+    if (!demoMode) return;
     if (pointerObjectGrabRef.current) {
       pointerObjectGrabRef.current = false;
       releaseObjectGrab();
@@ -1206,6 +1223,7 @@ export function AirloomStudio() {
   const handleCanvasDoubleClick = (
     event: ReactMouseEvent<HTMLElement>,
   ) => {
+    if (!demoMode) return;
     if (event.target !== event.currentTarget || menuOpenRef.current) return;
     event.preventDefault();
     if (
@@ -1219,6 +1237,7 @@ export function AirloomStudio() {
   };
 
   const handleCanvasWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (!demoMode) return;
     if (event.target !== event.currentTarget || menuOpenRef.current) return;
     event.preventDefault();
 
@@ -1251,6 +1270,11 @@ export function AirloomStudio() {
   };
 
   const handleCanvasPointerLeave = () => {
+    if (!demoMode) {
+      pointerHoverActiveRef.current = false;
+      hideHoverCursor();
+      return;
+    }
     if (
       pointerDrawingRef.current ||
       pointerObjectGrabRef.current ||
@@ -1309,7 +1333,7 @@ export function AirloomStudio() {
     <main className="airloom-app">
       <section
         ref={stageRef}
-        className={`white-workspace ${demoMode ? "mouse-mode" : ""}`}
+        className={`white-workspace ${demoMode ? "mouse-mode" : "camera-mode"}`}
         onPointerDown={handleCanvasPointerDown}
         onPointerMove={handleCanvasPointerMove}
         onPointerUp={handleCanvasPointerUp}
@@ -1318,7 +1342,9 @@ export function AirloomStudio() {
         onDoubleClick={handleCanvasDoubleClick}
         onWheel={handleCanvasWheel}
         onContextMenu={(event) => {
-          if (event.target === event.currentTarget) event.preventDefault();
+          if (demoMode && event.target === event.currentTarget) {
+            event.preventDefault();
+          }
         }}
       >
         <canvas ref={canvasRef} className="air-canvas" />
@@ -1459,6 +1485,8 @@ export function AirloomStudio() {
           className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
+          inert={!demoMode}
+          aria-disabled={!demoMode}
         >
           <button
             className="cartridge-tab"
@@ -1611,7 +1639,12 @@ export function AirloomStudio() {
           </div>
         </aside>
 
-        <nav className="minimal-tools" aria-label="Artwork controls">
+        <nav
+          className="minimal-tools"
+          aria-label="Artwork controls"
+          inert={!demoMode}
+          aria-disabled={!demoMode}
+        >
           <button
             onClick={() => {
               releaseObjectGrab();
@@ -1686,10 +1719,12 @@ export function AirloomStudio() {
 
         <p className="canvas-hint">
           {cameraState === "active"
-            ? "Pinch or left-drag to draw · Two-finger swipe pans · Press ? for every control"
+            ? "Gesture mode active · Exit camera to use mouse or keyboard"
             : cameraState === "calibrating"
-              ? "Camera ready · Loading hand tracking…"
-            : "Left-drag to draw · Double-click toggles eraser · Press ? for every control"}
+              ? "Loading hand tracking · Mouse and keyboard locked"
+              : cameraState === "requesting"
+                ? "Requesting camera access · Mouse and keyboard locked"
+                : "Left-drag to draw · Double-click toggles eraser · Press ? for every control"}
         </p>
       </section>
     </main>
