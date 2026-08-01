@@ -16,6 +16,7 @@ roll toggles the eraser.
 - Open palm in the cartridge: move left or right for continuous brush or eraser thickness
 - One finger in eraser mode: remove intersecting stroke segments
 - Optional Shape Assist: refine confident lines, arcs, circles, ellipses, triangles, rectangles, pentagons, and hexagons while preserving their original scale and hand-drawn character
+- Line Smoothing: enabled by default to lightly reduce tracking wobble on longer, visibly rough strokes while preserving short marks, endpoints, and deliberate corners
 
 Mouse, keyboard, and visible-button fallbacks are included.
 
@@ -26,7 +27,7 @@ Mouse, keyboard, and visible-button fallbacks are included.
 - View: select View and drag to orbit; use the nearby minus and plus controls to zoom
 - Object: select Object, drag a stroke group, and release near an edge or vertex to snap
 - Brush: open the right-side tab to choose color and thickness
-- More: access Shape Assist, reset, clear, export, and the complete control guide
+- More: access Line Smoothing, Shape Assist, reset, clear, export, and the complete control guide
 
 The touch layout uses a bottom dock, a full-width phone brush sheet, a wider
 landscape tool tray, and tablet-sized controls with safe-area spacing.

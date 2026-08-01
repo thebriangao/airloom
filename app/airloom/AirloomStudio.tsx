@@ -75,8 +75,8 @@ const WRIST_ROLL_EDGE_ORIENTATION = 0.2;
 const WRIST_ROLL_END_ORIENTATION = 0.42;
 const WRIST_ROLL_MAX_MS = 520;
 const WRIST_ROLL_COOLDOWN_MS = 900;
-const CANVAS_INPUT_BLOCKER = "[data-block-canvas-input]";
 const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
+const LINE_SMOOTHING_STORAGE_KEY = "airloom-line-smoothing-choice-v1";
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
   line: "Line perfected",
@@ -90,12 +90,11 @@ const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
   hexagon: "Hexagon refined",
 };
 
-const pointerIsOverCanvasUi = (clientX: number, clientY: number) =>
-  Boolean(
-    document
-      .elementFromPoint(clientX, clientY)
-      ?.closest(CANVAS_INPUT_BLOCKER),
-  );
+const pointerIsDirectlyOnCanvas = (
+  clientX: number,
+  clientY: number,
+  canvas: HTMLCanvasElement | null,
+) => canvas !== null && document.elementFromPoint(clientX, clientY) === canvas;
 
 const responsiveBlend = (
   distance: number,
@@ -278,6 +277,7 @@ export function AirloomStudio() {
   } | null>(null);
   const lastUndoAtRef = useRef(-Infinity);
   const shapeAssistEnabledRef = useRef(false);
+  const lineSmoothingEnabledRef = useRef(true);
   const shapeNoticeTimerRef = useRef<number | null>(null);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
@@ -296,6 +296,7 @@ export function AirloomStudio() {
   const [sideViewOrbiting, setSideViewOrbiting] = useState(false);
   const [sideViewReturning, setSideViewReturning] = useState(false);
   const [shapeAssistEnabled, setShapeAssistEnabled] = useState(false);
+  const [lineSmoothingEnabled, setLineSmoothingEnabled] = useState(true);
   const [shapeAssistPromptOpen, setShapeAssistPromptOpen] = useState(false);
   const [shapeCorrectionNotice, setShapeCorrectionNotice] = useState("");
   const [touchTool, setTouchTool] = useState<TouchTool>("draw");
@@ -735,6 +736,16 @@ export function AirloomStudio() {
     setShapeAssistPromptOpen(false);
   }, []);
 
+  const chooseLineSmoothing = useCallback((enabled: boolean) => {
+    lineSmoothingEnabledRef.current = enabled;
+    setLineSmoothingEnabled(enabled);
+    sceneRef.current?.setLineSmoothingEnabled(enabled);
+    window.localStorage.setItem(
+      LINE_SMOOTHING_STORAGE_KEY,
+      enabled ? "on" : "off",
+    );
+  }, []);
+
   useEffect(() => {
     if (
       !canvasRef.current ||
@@ -781,6 +792,16 @@ export function AirloomStudio() {
     setShapeAssistEnabled(enabled);
     sceneRef.current?.setShapeAssistEnabled(enabled);
     if (storedChoice === null) setShapeAssistPromptOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const storedChoice = window.localStorage.getItem(
+      LINE_SMOOTHING_STORAGE_KEY,
+    );
+    const enabled = storedChoice !== "off";
+    lineSmoothingEnabledRef.current = enabled;
+    setLineSmoothingEnabled(enabled);
+    sceneRef.current?.setLineSmoothingEnabled(enabled);
   }, []);
 
   useEffect(() => {
@@ -1557,8 +1578,15 @@ export function AirloomStudio() {
   ) => {
     if (!demoMode) return;
     if (menuOpenRef.current) return;
-    if (pointerIsOverCanvasUi(event.clientX, event.clientY)) return;
-    if (event.target !== event.currentTarget) return;
+    if (
+      !pointerIsDirectlyOnCanvas(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+      )
+    ) {
+      return;
+    }
     const pointer = pointerPosition(event);
     const handPointer = pointerInHandSpace(pointer);
     lastPointerPositionRef.current = pointer;
@@ -1671,15 +1699,26 @@ export function AirloomStudio() {
     event: ReactPointerEvent<HTMLElement>,
   ) => {
     if (!demoMode) return;
-    if (pointerIsOverCanvasUi(event.clientX, event.clientY)) {
+    if (
+      !pointerIsDirectlyOnCanvas(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+      )
+    ) {
       if (pointerDrawingRef.current) {
         pointerDrawingRef.current = false;
         pointerPressRef.current = null;
         pointerClickStrokeCountRef.current = 0;
         sceneRef.current?.endStroke();
-        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }
+      }
+      pointerNavigationRef.current = null;
+      if (pointerObjectGrabRef.current) {
+        pointerObjectGrabRef.current = false;
+        releaseObjectGrab();
+      }
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
       }
       pointerHoverActiveRef.current = false;
       hideHoverCursor();
@@ -1716,7 +1755,6 @@ export function AirloomStudio() {
     if (!pointerDrawingRef.current) {
       if (
         event.pointerType !== "touch" &&
-        event.target === event.currentTarget &&
         !menuOpenRef.current
       ) {
         pointerHoverActiveRef.current = true;
@@ -1763,7 +1801,11 @@ export function AirloomStudio() {
       !cancelled &&
       event.pointerType !== "touch" &&
       !menuOpenRef.current &&
-      !pointerIsOverCanvasUi(event.clientX, event.clientY)
+      pointerIsDirectlyOnCanvas(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+      )
     ) {
       const pointer = pointerPosition(event);
       lastPointerPositionRef.current = pointer;
@@ -1779,7 +1821,16 @@ export function AirloomStudio() {
     event: ReactMouseEvent<HTMLElement>,
   ) => {
     if (!demoMode) return;
-    if (event.target !== event.currentTarget || menuOpenRef.current) return;
+    if (
+      menuOpenRef.current ||
+      !pointerIsDirectlyOnCanvas(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+      )
+    ) {
+      return;
+    }
     event.preventDefault();
     if (
       !eraserEnabledRef.current &&
@@ -1793,7 +1844,16 @@ export function AirloomStudio() {
 
   const handleCanvasWheel = (event: ReactWheelEvent<HTMLElement>) => {
     if (!demoMode) return;
-    if (event.target !== event.currentTarget || menuOpenRef.current) return;
+    if (
+      menuOpenRef.current ||
+      !pointerIsDirectlyOnCanvas(
+        event.clientX,
+        event.clientY,
+        canvasRef.current,
+      )
+    ) {
+      return;
+    }
     event.preventDefault();
 
     if (pointerObjectGrabRef.current && lastPointerPositionRef.current) {
@@ -1933,20 +1993,21 @@ export function AirloomStudio() {
       <section
         ref={stageRef}
         className={`white-workspace ${demoMode ? "mouse-mode" : "camera-mode"}`}
-        onPointerDown={handleCanvasPointerDown}
-        onPointerMove={handleCanvasPointerMove}
-        onPointerUp={handleCanvasPointerUp}
-        onPointerCancel={(event) => handleCanvasPointerUp(event, true)}
-        onPointerLeave={handleCanvasPointerLeave}
-        onDoubleClick={handleCanvasDoubleClick}
-        onWheel={handleCanvasWheel}
-        onContextMenu={(event) => {
-          if (demoMode && event.target === event.currentTarget) {
-            event.preventDefault();
-          }
-        }}
       >
-        <canvas ref={canvasRef} className="air-canvas" />
+        <canvas
+          ref={canvasRef}
+          className="air-canvas"
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={handleCanvasPointerUp}
+          onPointerCancel={(event) => handleCanvasPointerUp(event, true)}
+          onPointerLeave={handleCanvasPointerLeave}
+          onDoubleClick={handleCanvasDoubleClick}
+          onWheel={handleCanvasWheel}
+          onContextMenu={(event) => {
+            if (demoMode) event.preventDefault();
+          }}
+        />
         <div
           ref={hoverCursorRef}
           className={`brush-hover-cursor ${eraserEnabled ? "is-eraser" : ""}`}
@@ -2332,6 +2393,16 @@ export function AirloomStudio() {
           >
             Auto {shapeAssistEnabled ? "On" : "Off"}
           </button>
+          <button
+            className={lineSmoothingEnabled ? "is-active" : ""}
+            onClick={() =>
+              chooseLineSmoothing(!lineSmoothingEnabledRef.current)
+            }
+            aria-pressed={lineSmoothingEnabled}
+            aria-label={`Turn Line Smoothing ${lineSmoothingEnabled ? "off" : "on"}`}
+          >
+            Smooth {lineSmoothingEnabled ? "On" : "Off"}
+          </button>
           <button onClick={exportArtwork}>Export</button>
           <button
             className="help-button"
@@ -2355,6 +2426,16 @@ export function AirloomStudio() {
               >
                 <span>Auto</span>
                 <small>{shapeAssistEnabled ? "On" : "Off"}</small>
+              </button>
+              <button
+                className={lineSmoothingEnabled ? "is-active" : ""}
+                onClick={() =>
+                  chooseLineSmoothing(!lineSmoothingEnabledRef.current)
+                }
+                aria-pressed={lineSmoothingEnabled}
+              >
+                <span>Smooth</span>
+                <small>{lineSmoothingEnabled ? "On" : "Off"}</small>
               </button>
               <button
                 onClick={() => {
@@ -2518,6 +2599,7 @@ export function AirloomStudio() {
               ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex", "Release near an edge or vertex"],
               ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo", "Tap Undo"],
               ["SHAPE ASSIST", "Choose before camera mode", "Click Auto On/Off", "More, then Auto"],
+              ["LINE SMOOTHING", "On by default", "Click Smooth On/Off", "More, then Smooth"],
               ["RESET VIEW", "Manual button", "Click Reset view", "More, then Reset"],
               ["CLEAR", "Manual button", "Click Clear", "More, then Clear"],
               ["EXPORT", "Manual button", "Click Export", "More, then Export"],

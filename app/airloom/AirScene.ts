@@ -3,6 +3,7 @@ import {
   correctSimpleGeometry,
   type CorrectedShapeKind,
 } from "./shapeCorrection";
+import { smoothStroke } from "./strokeSmoothing";
 import type { Point3 } from "./types";
 
 type Stroke = {
@@ -384,6 +385,7 @@ export class AirScene {
   private onSideViewReturnComplete?: () => void;
   private onShapeCorrected?: (kind: CorrectedShapeKind) => void;
   private shapeAssistEnabled = false;
+  private lineSmoothingEnabled = true;
   private sideBoundsDirty = true;
   private sideViewAngle = Math.PI / 2;
   private sideViewAngularVelocity = 0;
@@ -885,16 +887,35 @@ export class AirScene {
     const stroke = this.activeStroke;
     this.activeStroke = undefined;
     this.previousEraserPoint = undefined;
-    if (!stroke || !this.shapeAssistEnabled) return;
-    const correction = correctSimpleGeometry(stroke.points);
-    if (!correction) return;
-    stroke.points = correction.points;
-    this.rebuildStroke(stroke);
-    this.onShapeCorrected?.(correction.kind);
+    if (!stroke) return;
+
+    let changed = false;
+    if (this.lineSmoothingEnabled) {
+      const smoothedPoints = smoothStroke(stroke.points);
+      if (smoothedPoints !== stroke.points) {
+        stroke.points = smoothedPoints;
+        changed = true;
+      }
+    }
+
+    if (this.shapeAssistEnabled) {
+      const correction = correctSimpleGeometry(stroke.points);
+      if (correction) {
+        stroke.points = correction.points;
+        changed = true;
+        this.onShapeCorrected?.(correction.kind);
+      }
+    }
+
+    if (changed) this.rebuildStroke(stroke);
   }
 
   setShapeAssistEnabled(enabled: boolean) {
     this.shapeAssistEnabled = enabled;
+  }
+
+  setLineSmoothingEnabled(enabled: boolean) {
+    this.lineSmoothingEnabled = enabled;
   }
 
   pan(deltaX: number, deltaY: number) {
