@@ -117,6 +117,11 @@ const CAMERA_TRACKING_CONSTRAINTS: MediaTrackConstraints = {
   aspectRatio: { exact: LANDSCAPE_ASPECT_RATIO },
   frameRate: { ideal: 60 },
 };
+const TRACKING_FRAME_WIDTH = 640;
+const TRACKING_FRAME_HEIGHT = 360;
+const LIGHTING_SAMPLE_INTERVAL_MS = 220;
+const LOW_LIGHT_TARGET_LUMINANCE = 0.42;
+const LOW_LIGHT_MAX_GAIN = 2.35;
 
 const requestLandscapeCameraStream = async () => {
   let lastConstraintError: unknown;
@@ -155,6 +160,37 @@ const requestLandscapeCameraStream = async () => {
     lastConstraintError ??
     new Error("No landscape camera mode is available.")
   );
+};
+
+type CameraControlCapabilities = MediaTrackCapabilities & {
+  exposureMode?: string[];
+  focusMode?: string[];
+  whiteBalanceMode?: string[];
+};
+
+const preferContinuousCameraControls = async (track: MediaStreamTrack) => {
+  let capabilities: CameraControlCapabilities;
+  try {
+    capabilities = track.getCapabilities() as CameraControlCapabilities;
+  } catch {
+    return;
+  }
+  const preferences: Record<string, string> = {};
+  if (capabilities.exposureMode?.includes("continuous")) {
+    preferences.exposureMode = "continuous";
+  }
+  if (capabilities.focusMode?.includes("continuous")) {
+    preferences.focusMode = "continuous";
+  }
+  if (capabilities.whiteBalanceMode?.includes("continuous")) {
+    preferences.whiteBalanceMode = "continuous";
+  }
+  if (Object.keys(preferences).length === 0) return;
+  await track
+    .applyConstraints({
+      advanced: [preferences],
+    } as unknown as MediaTrackConstraints)
+    .catch(() => undefined);
 };
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
@@ -250,6 +286,44 @@ const palmCenter = (landmarks: Landmark[]) => {
   );
 };
 
+const selectPrimaryHand = (
+  hands: Landmark[][],
+  previousTip: Point3 | null,
+) => {
+  const candidates = hands.filter(
+    (landmarks) => landmarks.length >= 21 && landmarks[8],
+  );
+  if (candidates.length <= 1) return candidates[0];
+  if (previousTip) {
+    return candidates.reduce((closest, landmarks) => {
+      const closestTip = closest[8];
+      const nextTip = landmarks[8];
+      return Math.hypot(
+        nextTip.x - previousTip.x,
+        nextTip.y - previousTip.y,
+      ) <
+        Math.hypot(
+          closestTip.x - previousTip.x,
+          closestTip.y - previousTip.y,
+        )
+        ? landmarks
+        : closest;
+    });
+  }
+  return candidates.reduce((largest, landmarks) =>
+    Math.hypot(
+      landmarks[5].x - landmarks[17].x,
+      landmarks[5].y - landmarks[17].y,
+    ) >
+    Math.hypot(
+      largest[5].x - largest[17].x,
+      largest[5].y - largest[17].y,
+    )
+      ? landmarks
+      : largest,
+  );
+};
+
 const palmFacingScore = (landmarks: Landmark[]) => {
   const wrist = landmarks[0];
   const indexBase = landmarks[5];
@@ -310,6 +384,8 @@ export function AirloomStudio() {
   const stageRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackingVideoRef = useRef<HTMLVideoElement>(null);
+  const trackingCanvasRef = useRef<HTMLCanvasElement>(null);
+  const lightingProbeRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sideCanvasRef = useRef<HTMLCanvasElement>(null);
   const hoverCursorRef = useRef<HTMLDivElement>(null);
@@ -325,6 +401,8 @@ export function AirloomStudio() {
   const trackingFrameRef = useRef(0);
   const trackingActiveRef = useRef(false);
   const lastVideoTimeRef = useRef(-1);
+  const lastLightingSampleAtRef = useRef(-Infinity);
+  const trackingBrightnessGainRef = useRef(1);
   const lastHandsSeenAtRef = useRef(-Infinity);
   const noHandsSinceRef = useRef(-Infinity);
   const lastFaceSampleAtRef = useRef(-Infinity);
@@ -763,7 +841,7 @@ export function AirloomStudio() {
   );
 
   const processHeadTurn = useCallback(
-    (video: HTMLVideoElement, timestamp: number) => {
+    (video: TexImageSource, timestamp: number) => {
       const landmarker = faceLandmarkerRef.current;
       if (
         !landmarker ||
@@ -1070,16 +1148,10 @@ export function AirloomStudio() {
       ) {
         return;
       }
-      if (hands.length !== 1) {
-        sceneRef.current?.endStroke();
-        releaseSideViewOrbit();
-        releaseObjectGrab();
-        hideHoverCursor();
-        previousControlRef.current = null;
-        undoSwipeRef.current = null;
-        return;
-      }
-      const landmarks = hands[0];
+      const landmarks = selectPrimaryHand(
+        hands,
+        filteredTipRef.current,
+      );
       if (!landmarks) return;
       const result = gestureEngineRef.current.update(landmarks, timestamp);
       const wristRoll = detectWristRoll(landmarks, result, timestamp);
@@ -1237,7 +1309,6 @@ export function AirloomStudio() {
 
       const menuFist =
         menuOpenRef.current &&
-        result.fingerCount === 0 &&
         result.objectGrabIntent;
       const controlPose = menuFist
         ? "fist"
@@ -1459,28 +1530,30 @@ export function AirloomStudio() {
         import("@mediapipe/tasks-vision"),
         prepareVisionFileset(),
       ]);
+      const options = {
+        runningMode: "VIDEO" as const,
+        numHands: 2,
+        minHandDetectionConfidence: 0.38,
+        minHandPresenceConfidence: 0.38,
+        minTrackingConfidence: 0.42,
+      };
       try {
         return await HandLandmarker.createFromOptions(vision, {
+          ...options,
           baseOptions: {
             modelAssetPath:
               "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
             delegate: "GPU",
           },
-          runningMode: "VIDEO",
-          numHands: 2,
-          minHandDetectionConfidence: 0.52,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
         });
       } catch {
         return HandLandmarker.createFromOptions(vision, {
+          ...options,
           baseOptions: {
             modelAssetPath:
               "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
             delegate: "CPU",
           },
-          runningMode: "VIDEO",
-          numHands: 2,
         });
       }
     })().then(
@@ -1577,6 +1650,8 @@ export function AirloomStudio() {
     headTurnRef.current = null;
     wristRollRef.current = null;
     lastHandSampleAtRef.current = -Infinity;
+    lastLightingSampleAtRef.current = -Infinity;
+    trackingBrightnessGainRef.current = 1;
     undoSwipeRef.current = null;
     resetSideViewControl();
     releaseObjectGrab();
@@ -1599,6 +1674,75 @@ export function AirloomStudio() {
 
   const startTrackingLoop = useCallback(() => {
     trackingActiveRef.current = true;
+
+    const renderTrackingFrame = (
+      video: HTMLVideoElement,
+      timestamp: number,
+    ): TexImageSource => {
+      const canvas = trackingCanvasRef.current;
+      const context = canvas?.getContext("2d");
+      if (!canvas || !context) return video;
+
+      if (
+        timestamp - lastLightingSampleAtRef.current >=
+        LIGHTING_SAMPLE_INTERVAL_MS
+      ) {
+        let probe = lightingProbeRef.current;
+        if (!probe) {
+          probe = document.createElement("canvas");
+          probe.width = 32;
+          probe.height = 18;
+          lightingProbeRef.current = probe;
+        }
+        const probeContext = probe.getContext("2d", {
+          willReadFrequently: true,
+        });
+        if (probeContext) {
+          probeContext.drawImage(video, 0, 0, probe.width, probe.height);
+          const pixels = probeContext.getImageData(
+            0,
+            0,
+            probe.width,
+            probe.height,
+          ).data;
+          let luminance = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            luminance +=
+              (pixels[index] * 0.2126 +
+                pixels[index + 1] * 0.7152 +
+                pixels[index + 2] * 0.0722) /
+              255;
+          }
+          const averageLuminance =
+            luminance / Math.max(1, pixels.length / 4);
+          const targetGain = clamp(
+            LOW_LIGHT_TARGET_LUMINANCE /
+              Math.max(0.12, averageLuminance),
+            1,
+            LOW_LIGHT_MAX_GAIN,
+          );
+          trackingBrightnessGainRef.current +=
+            (targetGain - trackingBrightnessGainRef.current) * 0.34;
+        }
+        lastLightingSampleAtRef.current = timestamp;
+      }
+
+      const gain = trackingBrightnessGainRef.current;
+      const contrast = 1 + (gain - 1) * 0.1;
+      const saturation = 1 + (gain - 1) * 0.06;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.filter = `brightness(${gain}) contrast(${contrast}) saturate(${saturation})`;
+      context.drawImage(
+        video,
+        0,
+        0,
+        TRACKING_FRAME_WIDTH,
+        TRACKING_FRAME_HEIGHT,
+      );
+      context.filter = "none";
+      return canvas;
+    };
 
     const handleMissingHands = (timestamp: number) => {
       if (
@@ -1632,7 +1776,8 @@ export function AirloomStudio() {
         video.currentTime !== lastVideoTimeRef.current
       ) {
         lastVideoTimeRef.current = video.currentTime;
-        const result = landmarker.detectForVideo(video, timestamp);
+        const trackingFrame = renderTrackingFrame(video, timestamp);
+        const result = landmarker.detectForVideo(trackingFrame, timestamp);
         const hands = result.landmarks as Landmark[][];
         if (hands.length > 0) {
           lastHandsSeenAtRef.current = timestamp;
@@ -1645,7 +1790,7 @@ export function AirloomStudio() {
             noHandsSinceRef.current = timestamp;
           }
           if (timestamp - noHandsSinceRef.current >= HEAD_HAND_FREE_MS) {
-            processHeadTurn(video, timestamp);
+            processHeadTurn(trackingFrame, timestamp);
           }
           handleMissingHands(timestamp);
         }
@@ -1702,6 +1847,7 @@ export function AirloomStudio() {
       }
       const displayTrack = stream.getVideoTracks()[0];
       if (!displayTrack) throw new Error("Camera video is unavailable.");
+      await preferContinuousCameraControls(displayTrack);
       const trackingTrack = displayTrack.clone();
       await trackingTrack
         .applyConstraints(CAMERA_TRACKING_CONSTRAINTS)
@@ -2351,6 +2497,13 @@ export function AirloomStudio() {
               className="camera-tracking-feed"
               muted
               playsInline
+              aria-hidden="true"
+            />
+            <canvas
+              ref={trackingCanvasRef}
+              className="camera-tracking-feed"
+              width={TRACKING_FRAME_WIDTH}
+              height={TRACKING_FRAME_HEIGHT}
               aria-hidden="true"
             />
             {!cameraHasVideo && (
