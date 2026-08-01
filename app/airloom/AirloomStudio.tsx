@@ -73,6 +73,14 @@ const WRIST_ROLL_EDGE_ORIENTATION = 0.2;
 const WRIST_ROLL_END_ORIENTATION = 0.42;
 const WRIST_ROLL_MAX_MS = 520;
 const WRIST_ROLL_COOLDOWN_MS = 900;
+const CANVAS_INPUT_BLOCKER = "[data-block-canvas-input]";
+
+const pointerIsOverCanvasUi = (clientX: number, clientY: number) =>
+  Boolean(
+    document
+      .elementFromPoint(clientX, clientY)
+      ?.closest(CANVAS_INPUT_BLOCKER),
+  );
 
 const responsiveBlend = (
   distance: number,
@@ -1206,10 +1214,6 @@ export function AirloomStudio() {
     return promise;
   }, [prepareVisionFileset]);
 
-  useEffect(() => {
-    void prepareHandLandmarker().catch(() => undefined);
-  }, [prepareHandLandmarker]);
-
   const prepareFaceLandmarker = useCallback(() => {
     if (faceLandmarkerRef.current) {
       return Promise.resolve(faceLandmarkerRef.current);
@@ -1261,10 +1265,6 @@ export function AirloomStudio() {
     faceLandmarkerPromiseRef.current = promise;
     return promise;
   }, [prepareVisionFileset]);
-
-  useEffect(() => {
-    void prepareFaceLandmarker().catch(() => undefined);
-  }, [prepareFaceLandmarker]);
 
   const stopCamera = useCallback(() => {
     trackingActiveRef.current = false;
@@ -1469,6 +1469,7 @@ export function AirloomStudio() {
   ) => {
     if (!demoMode) return;
     if (menuOpenRef.current) return;
+    if (pointerIsOverCanvasUi(event.clientX, event.clientY)) return;
     if (event.target !== event.currentTarget) return;
     const pointer = pointerPosition(event);
     const handPointer = pointerInHandSpace(pointer);
@@ -1546,6 +1547,20 @@ export function AirloomStudio() {
     event: ReactPointerEvent<HTMLElement>,
   ) => {
     if (!demoMode) return;
+    if (pointerIsOverCanvasUi(event.clientX, event.clientY)) {
+      if (pointerDrawingRef.current) {
+        pointerDrawingRef.current = false;
+        pointerPressRef.current = null;
+        pointerClickStrokeCountRef.current = 0;
+        sceneRef.current?.endStroke();
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      }
+      pointerHoverActiveRef.current = false;
+      hideHoverCursor();
+      return;
+    }
     const pointer = pointerPosition(event);
     const handPointer = pointerInHandSpace(pointer);
     lastPointerPositionRef.current = pointer;
@@ -1623,7 +1638,8 @@ export function AirloomStudio() {
     if (
       !cancelled &&
       event.pointerType !== "touch" &&
-      !menuOpenRef.current
+      !menuOpenRef.current &&
+      !pointerIsOverCanvasUi(event.clientX, event.clientY)
     ) {
       const pointer = pointerPosition(event);
       lastPointerPositionRef.current = pointer;
@@ -1816,6 +1832,7 @@ export function AirloomStudio() {
           aria-hidden="true"
         />
         <aside
+          data-block-canvas-input
           className={`side-view-inset ${hasArtwork ? "is-visible" : ""} ${sideViewOrbiting ? "is-orbiting" : ""}`}
           aria-label="Right side view, locked ninety degrees from the main view"
           onPointerDown={handleSideViewPointerDown}
@@ -1892,6 +1909,7 @@ export function AirloomStudio() {
         </div>
 
         <aside
+          data-block-canvas-input
           className="camera-bubble"
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -1914,6 +1932,12 @@ export function AirloomStudio() {
                       : "Ready when you are"}
                 </strong>
                 <button
+                  onPointerEnter={() => {
+                    void prepareHandLandmarker().catch(() => undefined);
+                  }}
+                  onFocus={() => {
+                    void prepareHandLandmarker().catch(() => undefined);
+                  }}
                   onClick={(event) => {
                     event.stopPropagation();
                     void startCamera();
@@ -1955,6 +1979,7 @@ export function AirloomStudio() {
         </aside>
 
         <aside
+          data-block-canvas-input
           className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
@@ -2113,6 +2138,7 @@ export function AirloomStudio() {
         </aside>
 
         <nav
+          data-block-canvas-input
           className="minimal-tools"
           aria-label="Artwork controls"
           inert={!demoMode}
@@ -2159,6 +2185,7 @@ export function AirloomStudio() {
 
         {helpOpen && (
           <aside
+            data-block-canvas-input
             className="gesture-guide"
             aria-label="Complete Airloom control map"
           >
