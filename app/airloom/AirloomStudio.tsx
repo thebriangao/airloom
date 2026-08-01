@@ -2196,11 +2196,7 @@ export function AirloomStudio() {
           </button>
         </header>
 
-        <div
-          data-block-canvas-input
-          className="gesture-pill"
-          aria-live="polite"
-        >
+        <div className="gesture-pill" aria-live="polite">
           <span className={cameraState === "active" ? "live-dot" : "idle-dot"} />
           <span className="gesture-pill-copy">
             {cameraState === "requesting"
