@@ -83,16 +83,78 @@ const WRIST_ROLL_COOLDOWN_MS = 900;
 const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
 const LINE_SMOOTHING_STORAGE_KEY = "airloom-line-smoothing-choice-v1";
 const THEME_STORAGE_KEY = "airloom-theme-choice-v1";
-const CAMERA_DISPLAY_CONSTRAINTS: MediaTrackConstraints = {
-  facingMode: { ideal: "user" },
-  width: { ideal: 3840 },
-  height: { ideal: 2160 },
-  frameRate: { ideal: 60 },
-};
+const LANDSCAPE_ASPECT_RATIO = 16 / 9;
+const CAMERA_DISPLAY_PROFILES: MediaTrackConstraints[] = [
+  {
+    facingMode: { ideal: "user" },
+    width: { ideal: 3840 },
+    height: { ideal: 2160 },
+    aspectRatio: { exact: LANDSCAPE_ASPECT_RATIO },
+    frameRate: { ideal: 60 },
+  },
+  {
+    facingMode: { ideal: "user" },
+    width: { exact: 1920 },
+    height: { exact: 1080 },
+    frameRate: { ideal: 60 },
+  },
+  {
+    facingMode: { ideal: "user" },
+    width: { exact: 1280 },
+    height: { exact: 720 },
+    frameRate: { ideal: 60 },
+  },
+  {
+    facingMode: { ideal: "user" },
+    width: { exact: 640 },
+    height: { exact: 360 },
+    frameRate: { ideal: 60 },
+  },
+];
 const CAMERA_TRACKING_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 640 },
   height: { ideal: 360 },
+  aspectRatio: { exact: LANDSCAPE_ASPECT_RATIO },
   frameRate: { ideal: 60 },
+};
+
+const requestLandscapeCameraStream = async () => {
+  let lastConstraintError: unknown;
+  for (const video of CAMERA_DISPLAY_PROFILES) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video,
+        audio: false,
+      });
+      const track = stream.getVideoTracks()[0];
+      const { width, height } = track?.getSettings() ?? {};
+      if (width && height && height > width) {
+        stream.getTracks().forEach((streamTrack) => streamTrack.stop());
+        lastConstraintError = new DOMException(
+          "The camera returned a portrait video profile.",
+          "OverconstrainedError",
+        );
+        continue;
+      }
+      return stream;
+    } catch (error) {
+      const errorName =
+        error instanceof DOMException || error instanceof Error
+          ? error.name
+          : "";
+      if (
+        errorName !== "OverconstrainedError" &&
+        errorName !== "ConstraintNotSatisfiedError"
+      ) {
+        throw error;
+      }
+      lastConstraintError = error;
+    }
+  }
+  throw (
+    lastConstraintError ??
+    new Error("No landscape camera mode is available.")
+  );
 };
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
@@ -1633,10 +1695,7 @@ export function AirloomStudio() {
           "Camera access is unavailable here. Open Airloom in a current browser over HTTPS.",
         );
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: CAMERA_DISPLAY_CONSTRAINTS,
-        audio: false,
-      });
+      const stream = await requestLandscapeCameraStream();
       streamRef.current = stream;
       if (!videoRef.current || !trackingVideoRef.current) {
         throw new Error("Camera surface unavailable.");
