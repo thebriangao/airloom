@@ -79,9 +79,14 @@ const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
   line: "Line perfected",
+  arc: "Arc refined",
   circle: "Circle perfected",
+  ellipse: "Ellipse refined",
+  triangle: "Triangle refined",
   square: "Square perfected",
   rectangle: "Rectangle perfected",
+  pentagon: "Pentagon refined",
+  hexagon: "Hexagon refined",
 };
 
 const pointerIsOverCanvasUi = (clientX: number, clientY: number) =>
@@ -2309,9 +2314,9 @@ export function AirloomStudio() {
               <span className="shape-assist-kicker">OPTIONAL DRAWING AID</span>
               <h2 id="shape-assist-title">Turn on Shape Assist?</h2>
               <p id="shape-assist-description">
-                Airloom can perfect confident lines, circles, squares, and
-                rectangles when you finish drawing. Anything it does not
-                recognize stays exactly as you drew it.
+                Airloom can refine confident lines, curves, and simple shapes
+                while preserving your size, proportions, and hand-drawn
+                character. Anything it does not recognize stays untouched.
               </p>
               <div className="shape-assist-actions">
                 <button onClick={() => chooseShapeAssist(true)}>
@@ -2321,7 +2326,7 @@ export function AirloomStudio() {
                   Not right now
                 </button>
               </div>
-              <small>LOCAL GEOMETRY ONLY · NO UPLOADS · NO GENERATIVE AI</small>
+              <small>LOCAL GEOMETRY ONLY · YOUR STROKE STILL FEELS YOURS</small>
             </aside>
           </div>
         )}

@@ -15,7 +15,7 @@ roll toggles the eraser.
 - Fist in the cartridge: move across the camera frame to select from a 5x5 color grid
 - Open palm in the cartridge: move left or right for continuous brush or eraser thickness
 - One finger in eraser mode: remove intersecting stroke segments
-- Optional Shape Assist: perfect confident lines, circles, squares, and rectangles when a stroke ends
+- Optional Shape Assist: refine confident lines, arcs, circles, ellipses, triangles, rectangles, pentagons, and hexagons while preserving their original scale and hand-drawn character
 
 Mouse, keyboard, and visible-button fallbacks are included.
 
