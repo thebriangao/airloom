@@ -34,6 +34,7 @@ type CameraState =
   | "active"
   | "error";
 type TouchTool = "draw" | "pan" | "orbit" | "grab";
+type ThemeMode = "light" | "dark";
 type VisionFileset = Parameters<
   typeof HandLandmarker.createFromOptions
 >[0];
@@ -77,6 +78,7 @@ const WRIST_ROLL_MAX_MS = 520;
 const WRIST_ROLL_COOLDOWN_MS = 900;
 const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
 const LINE_SMOOTHING_STORAGE_KEY = "airloom-line-smoothing-choice-v1";
+const THEME_STORAGE_KEY = "airloom-theme-choice-v1";
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
   line: "Line perfected",
@@ -324,6 +326,7 @@ export function AirloomStudio() {
   const [sideViewReturning, setSideViewReturning] = useState(false);
   const [shapeAssistEnabled, setShapeAssistEnabled] = useState(false);
   const [lineSmoothingEnabled, setLineSmoothingEnabled] = useState(true);
+  const [theme, setTheme] = useState<ThemeMode>("light");
   const [shapeAssistPromptOpen, setShapeAssistPromptOpen] = useState(false);
   const [shapeCorrectionNotice, setShapeCorrectionNotice] = useState("");
   const [touchTool, setTouchTool] = useState<TouchTool>("draw");
@@ -800,6 +803,14 @@ export function AirloomStudio() {
     );
   }, []);
 
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === "light" ? "dark" : "light";
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     if (
       !canvasRef.current ||
@@ -856,6 +867,19 @@ export function AirloomStudio() {
     lineSmoothingEnabledRef.current = enabled;
     setLineSmoothingEnabled(enabled);
     sceneRef.current?.setLineSmoothingEnabled(enabled);
+  }, []);
+
+  useEffect(() => {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (storedTheme === "light" || storedTheme === "dark") {
+      setTheme(storedTheme);
+      return;
+    }
+    setTheme(
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light",
+    );
   }, []);
 
   useEffect(() => {
@@ -2009,7 +2033,7 @@ export function AirloomStudio() {
     output.height = height;
     const context = output.getContext("2d");
     if (!context) return;
-    context.fillStyle = "#fbfbf8";
+    context.fillStyle = theme === "dark" ? "#0b0c0f" : "#fbfbf8";
     context.fillRect(0, 0, width, height);
     context.fillStyle = "#d8d8d4";
     const gap = 26 * (width / Math.max(1, stage.clientWidth));
@@ -2043,9 +2067,46 @@ export function AirloomStudio() {
 
   return (
     <main className="airloom-app">
+      <svg
+        className="liquid-glass-definitions"
+        width="0"
+        height="0"
+        aria-hidden="true"
+      >
+        <defs>
+          <filter
+            id="airloom-liquid-refraction"
+            x="-20%"
+            y="-40%"
+            width="140%"
+            height="180%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.012 0.045"
+              numOctaves="2"
+              seed="17"
+              result="glass-noise"
+            />
+            <feGaussianBlur
+              in="glass-noise"
+              stdDeviation="0.55"
+              result="soft-noise"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="soft-noise"
+              scale="11"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+      </svg>
       <section
         ref={stageRef}
-        className={`white-workspace ${demoMode ? "mouse-mode" : "camera-mode"}`}
+        className={`white-workspace theme-${theme} ${demoMode ? "mouse-mode" : "camera-mode"}`}
       >
         <canvas
           ref={canvasRef}
@@ -2065,7 +2126,12 @@ export function AirloomStudio() {
           ref={hoverCursorRef}
           className={`brush-hover-cursor ${eraserEnabled ? "is-eraser" : ""}`}
           style={{
-            color: eraserEnabled ? "#111111" : selectedColor.value,
+            color:
+              eraserEnabled && theme === "dark"
+                ? "#f4f5f7"
+                : eraserEnabled
+                  ? "#111111"
+                  : selectedColor.value,
           }}
           aria-hidden="true"
         />
@@ -2090,7 +2156,6 @@ export function AirloomStudio() {
                     : "RIGHT +90°"}
               </strong>
             </div>
-            <i />
           </header>
           <div className="side-view-stage">
             <canvas ref={sideCanvasRef} className="side-view-canvas" />
@@ -2119,6 +2184,16 @@ export function AirloomStudio() {
             <strong>AIRLOOM</strong>
             <small>SPACE IS THE CANVAS</small>
           </div>
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            aria-pressed={theme === "dark"}
+          >
+            <span className="theme-toggle-track" aria-hidden="true">
+              <i>{theme === "dark" ? "☾" : "☀"}</i>
+            </span>
+          </button>
         </header>
 
         <div
@@ -2127,39 +2202,41 @@ export function AirloomStudio() {
           aria-live="polite"
         >
           <span className={cameraState === "active" ? "live-dot" : "idle-dot"} />
-          {cameraState === "requesting"
-            ? "Waiting for camera permission"
-            : cameraState === "calibrating"
-              ? "Loading hand tracking"
-              : sideViewOrbiting
-                ? "Turning side view"
-                : sideViewReturning
-                  ? "Side view returning"
-                : shapeCorrectionNotice
-                  ? shapeCorrectionNotice
-              : demoMode
-                ? touchLayout
-                  ? touchTool === "pan"
-                    ? "Move canvas"
-                    : touchTool === "orbit"
-                      ? "Turn 3D view"
-                      : touchTool === "grab"
-                        ? "Move an object"
-                        : eraserEnabled
-                          ? "Touch eraser"
-                          : "Touch drawing"
-                  : eraserEnabled
-                    ? "Mouse eraser"
-                    : "Mouse drawing"
-                : gesture === "grab"
-                  ? objectGrabSelected
-                    ? snapKind === "none"
-                      ? "Moving object"
-                      : `${snapKind === "vertex" ? "Vertex" : "Edge"} snap locked`
-                    : "Close fist over an object"
-                  : eraserEnabled
-                    ? `Eraser · ${POSE_LABELS[gesture]}`
-                    : POSE_LABELS[gesture]}
+          <span className="gesture-pill-copy">
+            {cameraState === "requesting"
+              ? "Waiting for camera permission"
+              : cameraState === "calibrating"
+                ? "Loading hand tracking"
+                : sideViewOrbiting
+                  ? "Turning side view"
+                  : sideViewReturning
+                    ? "Side view returning"
+                    : shapeCorrectionNotice
+                      ? shapeCorrectionNotice
+                : demoMode
+                  ? touchLayout
+                    ? touchTool === "pan"
+                      ? "Move canvas"
+                      : touchTool === "orbit"
+                        ? "Turn 3D view"
+                        : touchTool === "grab"
+                          ? "Move an object"
+                          : eraserEnabled
+                            ? "Touch eraser"
+                            : "Touch drawing"
+                    : eraserEnabled
+                      ? "Mouse eraser"
+                      : "Mouse drawing"
+                  : gesture === "grab"
+                    ? objectGrabSelected
+                      ? snapKind === "none"
+                        ? "Moving object"
+                        : `${snapKind === "vertex" ? "Vertex" : "Edge"} snap locked`
+                      : "Close fist over an object"
+                    : eraserEnabled
+                      ? `Eraser · ${POSE_LABELS[gesture]}`
+                      : POSE_LABELS[gesture]}
+          </span>
         </div>
 
         <aside
@@ -2211,23 +2288,15 @@ export function AirloomStudio() {
               </div>
             )}
             {cameraHasVideo && (
-              <>
-                <div className="camera-label">
-                  <span />
-                  {cameraState === "active"
-                    ? "LIVE HAND + FACE"
-                    : "LOADING TRACKING"}
-                </div>
-                <button
-                  className="camera-exit"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    useMouse();
-                  }}
-                >
-                  Exit
-                </button>
-              </>
+              <button
+                className="camera-exit"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  useMouse();
+                }}
+              >
+                Exit
+              </button>
             )}
           </div>
         </aside>
