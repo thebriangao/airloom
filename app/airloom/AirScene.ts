@@ -1,4 +1,8 @@
 import * as THREE from "three";
+import {
+  correctSimpleGeometry,
+  type CorrectedShapeKind,
+} from "./shapeCorrection";
 import type { Point3 } from "./types";
 
 type Stroke = {
@@ -378,6 +382,8 @@ export class AirScene {
   private lastArtworkPresence = false;
   private onArtworkPresenceChange?: (hasArtwork: boolean) => void;
   private onSideViewReturnComplete?: () => void;
+  private onShapeCorrected?: (kind: CorrectedShapeKind) => void;
+  private shapeAssistEnabled = false;
   private sideBoundsDirty = true;
   private sideViewAngle = Math.PI / 2;
   private sideViewAngularVelocity = 0;
@@ -396,9 +402,11 @@ export class AirScene {
     sideCanvas: HTMLCanvasElement,
     onArtworkPresenceChange?: (hasArtwork: boolean) => void,
     onSideViewReturnComplete?: () => void,
+    onShapeCorrected?: (kind: CorrectedShapeKind) => void,
   ) {
     this.onArtworkPresenceChange = onArtworkPresenceChange;
     this.onSideViewReturnComplete = onSideViewReturnComplete;
+    this.onShapeCorrected = onShapeCorrected;
     this.renderer = new THREE.WebGLRenderer({
       canvas,
       alpha: true,
@@ -874,8 +882,19 @@ export class AirScene {
   }
 
   endStroke() {
+    const stroke = this.activeStroke;
     this.activeStroke = undefined;
     this.previousEraserPoint = undefined;
+    if (!stroke || !this.shapeAssistEnabled) return;
+    const correction = correctSimpleGeometry(stroke.points);
+    if (!correction) return;
+    stroke.points = correction.points;
+    this.rebuildStroke(stroke);
+    this.onShapeCorrected?.(correction.kind);
+  }
+
+  setShapeAssistEnabled(enabled: boolean) {
+    this.shapeAssistEnabled = enabled;
   }
 
   pan(deltaX: number, deltaY: number) {
@@ -974,6 +993,7 @@ export class AirScene {
     window.cancelAnimationFrame(this.frame);
     this.onArtworkPresenceChange = undefined;
     this.onSideViewReturnComplete = undefined;
+    this.onShapeCorrected = undefined;
     this.clear();
     this.renderer.dispose();
     this.sideRenderer.dispose();

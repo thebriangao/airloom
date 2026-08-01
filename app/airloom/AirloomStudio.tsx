@@ -16,6 +16,7 @@ import {
 } from "react";
 import { AirScene, type SnapKind } from "./AirScene";
 import { GestureEngine } from "./gestureEngine";
+import type { CorrectedShapeKind } from "./shapeCorrection";
 import {
   AIRLOOM_COLORS,
   eraserRadiusFromThickness,
@@ -74,6 +75,14 @@ const WRIST_ROLL_END_ORIENTATION = 0.42;
 const WRIST_ROLL_MAX_MS = 520;
 const WRIST_ROLL_COOLDOWN_MS = 900;
 const CANVAS_INPUT_BLOCKER = "[data-block-canvas-input]";
+const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
+
+const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
+  line: "Line perfected",
+  circle: "Circle perfected",
+  square: "Square perfected",
+  rectangle: "Rectangle perfected",
+};
 
 const pointerIsOverCanvasUi = (clientX: number, clientY: number) =>
   Boolean(
@@ -262,6 +271,8 @@ export function AirloomStudio() {
     timestamp: number;
   } | null>(null);
   const lastUndoAtRef = useRef(-Infinity);
+  const shapeAssistEnabledRef = useRef(false);
+  const shapeNoticeTimerRef = useRef<number | null>(null);
 
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [cameraError, setCameraError] = useState("");
@@ -278,6 +289,9 @@ export function AirloomStudio() {
   const [snapKind, setSnapKind] = useState<SnapKind>("none");
   const [sideViewOrbiting, setSideViewOrbiting] = useState(false);
   const [sideViewReturning, setSideViewReturning] = useState(false);
+  const [shapeAssistEnabled, setShapeAssistEnabled] = useState(false);
+  const [shapeAssistPromptOpen, setShapeAssistPromptOpen] = useState(false);
+  const [shapeCorrectionNotice, setShapeCorrectionNotice] = useState("");
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
@@ -671,6 +685,28 @@ export function AirloomStudio() {
     setGesture(next);
   }, []);
 
+  const showShapeCorrection = useCallback((kind: CorrectedShapeKind) => {
+    setShapeCorrectionNotice(SHAPE_CORRECTION_LABELS[kind]);
+    if (shapeNoticeTimerRef.current !== null) {
+      window.clearTimeout(shapeNoticeTimerRef.current);
+    }
+    shapeNoticeTimerRef.current = window.setTimeout(() => {
+      setShapeCorrectionNotice("");
+      shapeNoticeTimerRef.current = null;
+    }, 1200);
+  }, []);
+
+  const chooseShapeAssist = useCallback((enabled: boolean) => {
+    shapeAssistEnabledRef.current = enabled;
+    setShapeAssistEnabled(enabled);
+    sceneRef.current?.setShapeAssistEnabled(enabled);
+    window.localStorage.setItem(
+      SHAPE_ASSIST_STORAGE_KEY,
+      enabled ? "on" : "off",
+    );
+    setShapeAssistPromptOpen(false);
+  }, []);
+
   useEffect(() => {
     if (
       !canvasRef.current ||
@@ -684,6 +720,7 @@ export function AirloomStudio() {
       sideCanvasRef.current,
       setHasArtwork,
       () => setSideViewReturning(false),
+      showShapeCorrection,
     );
     sceneRef.current = scene;
     const resize = () => {
@@ -698,9 +735,24 @@ export function AirloomStudio() {
     resize();
     return () => {
       observer.disconnect();
+      if (shapeNoticeTimerRef.current !== null) {
+        window.clearTimeout(shapeNoticeTimerRef.current);
+        shapeNoticeTimerRef.current = null;
+      }
       scene.dispose();
       sceneRef.current = null;
     };
+  }, [showShapeCorrection]);
+
+  useEffect(() => {
+    const storedChoice = window.localStorage.getItem(
+      SHAPE_ASSIST_STORAGE_KEY,
+    );
+    const enabled = storedChoice === "on";
+    shapeAssistEnabledRef.current = enabled;
+    setShapeAssistEnabled(enabled);
+    sceneRef.current?.setShapeAssistEnabled(enabled);
+    if (storedChoice === null) setShapeAssistPromptOpen(true);
   }, []);
 
   useEffect(() => {
@@ -1893,6 +1945,8 @@ export function AirloomStudio() {
                 ? "Turning side view"
                 : sideViewReturning
                   ? "Side view returning"
+                : shapeCorrectionNotice
+                  ? shapeCorrectionNotice
               : demoMode
                 ? eraserEnabled
                   ? "Mouse eraser"
@@ -2173,6 +2227,14 @@ export function AirloomStudio() {
           >
             Eraser
           </button>
+          <button
+            className={shapeAssistEnabled ? "is-active" : ""}
+            onClick={() => chooseShapeAssist(!shapeAssistEnabledRef.current)}
+            aria-pressed={shapeAssistEnabled}
+            aria-label={`Turn Shape Assist ${shapeAssistEnabled ? "off" : "on"}`}
+          >
+            Auto {shapeAssistEnabled ? "On" : "Off"}
+          </button>
           <button onClick={exportArtwork}>Export</button>
           <button
             className="help-button"
@@ -2216,6 +2278,7 @@ export function AirloomStudio() {
               ["DEPTH", "Grab + move hand in/out", "Wheel while holding object"],
               ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex"],
               ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo"],
+              ["SHAPE ASSIST", "Choose before camera mode", "Click Auto On/Off"],
               ["RESET VIEW", "Manual button", "Click Reset view"],
               ["CLEAR", "Manual button", "Click Clear"],
               ["EXPORT", "Manual button", "Click Export"],
@@ -2228,6 +2291,39 @@ export function AirloomStudio() {
               </div>
             ))}
           </aside>
+        )}
+
+        {shapeAssistPromptOpen && (
+          <div
+            data-block-canvas-input
+            className="shape-assist-scrim"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
+            <aside
+              className="shape-assist-prompt"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="shape-assist-title"
+              aria-describedby="shape-assist-description"
+            >
+              <span className="shape-assist-kicker">OPTIONAL DRAWING AID</span>
+              <h2 id="shape-assist-title">Turn on Shape Assist?</h2>
+              <p id="shape-assist-description">
+                Airloom can perfect confident lines, circles, squares, and
+                rectangles when you finish drawing. Anything it does not
+                recognize stays exactly as you drew it.
+              </p>
+              <div className="shape-assist-actions">
+                <button onClick={() => chooseShapeAssist(true)}>
+                  Turn it on
+                </button>
+                <button onClick={() => chooseShapeAssist(false)}>
+                  Not right now
+                </button>
+              </div>
+              <small>LOCAL GEOMETRY ONLY · NO UPLOADS · NO GENERATIVE AI</small>
+            </aside>
+          </div>
         )}
 
         <p className="canvas-hint">

@@ -1033,6 +1033,96 @@ button {
   font-size: 12px;
 }
 
+.shape-assist-scrim {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(248, 248, 244, 0.7);
+  backdrop-filter: blur(7px);
+}
+
+.shape-assist-prompt {
+  width: min(430px, calc(100vw - 40px));
+  overflow: hidden;
+  border: 1px solid #111;
+  border-radius: 24px;
+  background: #fbfbf8;
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 22px 60px rgba(0, 0, 0, 0.14);
+  color: #111;
+  padding: 28px;
+}
+
+.shape-assist-kicker,
+.shape-assist-prompt small {
+  font-family: var(--font-geist-mono), monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.shape-assist-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #111;
+  border-radius: 999px;
+  font-size: 7px;
+}
+
+.shape-assist-prompt h2 {
+  margin: 22px 0 10px;
+  font-size: clamp(28px, 4vw, 39px);
+  letter-spacing: -0.055em;
+  line-height: 0.98;
+}
+
+.shape-assist-prompt p {
+  margin: 0;
+  color: #555550;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.shape-assist-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 24px 0 18px;
+}
+
+.shape-assist-actions button {
+  min-height: 43px;
+  border: 1px solid #111;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.shape-assist-actions button:last-child {
+  background: transparent;
+  color: #111;
+}
+
+.shape-assist-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.shape-assist-prompt small {
+  display: block;
+  color: #858580;
+  font-size: 6px;
+}
+
 .gesture-guide {
   position: absolute;
   z-index: 10;
@@ -1260,6 +1350,14 @@ button {
 
   .minimal-tools button:nth-child(2) {
     display: none;
+  }
+
+  .shape-assist-prompt {
+    padding: 22px;
+  }
+
+  .shape-assist-actions {
+    grid-template-columns: 1fr;
   }
 }
 
