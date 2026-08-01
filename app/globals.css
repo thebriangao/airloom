@@ -444,13 +444,31 @@ button {
 }
 
 .camera-bubble {
+  --camera-drop-shadow: rgba(0, 0, 0, 0.16);
+  --camera-depth-border: #5a5a57;
+  --camera-depth-background: #191919;
+  --camera-depth-edge: #050505;
+  --camera-depth-shadow: rgba(0, 0, 0, 0.16);
+  --camera-rim: #e7e7e2;
+  --camera-window-center: #3b3b3b;
+  --camera-window-edge: #171717;
+  --camera-window-background: #171717;
+  --camera-window-highlight: rgba(255, 255, 255, 0.72);
+  --camera-window-shadow: rgba(0, 0, 0, 0.28);
+  --camera-window-reflection: rgba(255, 255, 255, 0.07);
+  --camera-placeholder-color: #fff;
+  --camera-button-border: #fff;
+  --camera-button-background: #fff;
+  --camera-button-color: #111;
+  --camera-button-hover: #e7e7e2;
+  --camera-text-button-color: #aaa;
   position: absolute;
   z-index: 12;
   top: 34px;
   right: 44px;
   width: clamp(250px, 22vw, 330px);
   aspect-ratio: 1.58;
-  filter: drop-shadow(0 24px 18px rgba(20, 20, 18, 0.16));
+  filter: drop-shadow(0 24px 18px var(--camera-drop-shadow));
   transform: rotate(0.7deg);
 }
 
@@ -458,32 +476,36 @@ button {
   position: absolute;
   z-index: -1;
   inset: 9px -9px -13px 10px;
-  border: 1px solid #a5a5a0;
+  border: 1px solid var(--camera-depth-border);
   border-radius: 34px 43px 35px 49px;
-  background: #191919;
+  background: var(--camera-depth-background);
   box-shadow:
-    0 7px 0 #111,
-    0 14px 24px rgba(0, 0, 0, 0.16);
+    0 7px 0 var(--camera-depth-edge),
+    0 14px 24px var(--camera-depth-shadow);
 }
 
 .camera-window {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  border: 2px solid #111;
+  border: 2px solid var(--camera-rim);
   border-radius: 42px 31px 46px 35px;
   background:
-    radial-gradient(circle at 28% 24%, #3b3b3b, #171717 68%),
-    #171717;
+    radial-gradient(
+      circle at 28% 24%,
+      var(--camera-window-center),
+      var(--camera-window-edge) 68%
+    ),
+    var(--camera-window-background);
   box-shadow:
-    0 2px 0 rgba(255, 255, 255, 0.72) inset,
-    0 -8px 16px rgba(0, 0, 0, 0.28) inset;
+    0 2px 0 var(--camera-window-highlight) inset,
+    0 -8px 16px var(--camera-window-shadow) inset;
 }
 
 .camera-window::after {
   position: absolute;
   inset: 0;
-  border: 7px solid rgba(255, 255, 255, 0.07);
+  border: 7px solid var(--camera-window-reflection);
   border-radius: inherit;
   content: "";
   pointer-events: none;
@@ -514,7 +536,7 @@ button {
   align-items: center;
   justify-content: center;
   padding: 22px;
-  color: #fff;
+  color: var(--camera-placeholder-color);
   text-align: center;
 }
 
@@ -533,24 +555,24 @@ button {
 
 .camera-placeholder button {
   padding: 8px 13px;
-  border: 1px solid #fff;
+  border: 1px solid var(--camera-button-border);
   border-radius: 999px;
-  background: #fff;
-  color: #111;
+  background: var(--camera-button-background);
+  color: var(--camera-button-color);
   cursor: pointer;
   font-size: 9px;
   font-weight: 700;
 }
 
 .camera-placeholder button:hover {
-  background: #e7e7e2;
+  background: var(--camera-button-hover);
 }
 
 .camera-placeholder .camera-text-button {
   margin-top: 6px;
   border-color: transparent;
   background: transparent;
-  color: #aaa;
+  color: var(--camera-text-button-color);
 }
 
 .camera-placeholder small {
@@ -1376,49 +1398,24 @@ button {
 }
 
 .theme-light .camera-bubble {
-  filter: drop-shadow(0 24px 18px rgba(20, 20, 18, 0.12));
-}
-
-.theme-light .camera-bubble-depth {
-  border-color: #aaa9a3;
-  background: #e7e7e2;
-  box-shadow:
-    0 7px 0 #d4d4ce,
-    0 14px 24px rgba(0, 0, 0, 0.13);
-}
-
-.theme-light .camera-window {
-  border-color: #171716;
-  background:
-    radial-gradient(circle at 28% 24%, #fff, #ecece7 72%),
-    #f4f4ef;
-  box-shadow:
-    0 2px 0 rgba(255, 255, 255, 0.95) inset,
-    0 -8px 18px rgba(70, 70, 66, 0.1) inset;
-}
-
-.theme-light .camera-window::after {
-  border-color: rgba(255, 255, 255, 0.52);
-}
-
-.theme-light .camera-placeholder {
-  color: #171716;
-}
-
-.theme-light .camera-placeholder button {
-  border-color: #171716;
-  background: #171716;
-  color: #fff;
-}
-
-.theme-light .camera-placeholder button:hover {
-  background: #33332f;
-}
-
-.theme-light .camera-placeholder .camera-text-button {
-  border-color: transparent;
-  background: transparent;
-  color: #666660;
+  --camera-drop-shadow: rgba(20, 20, 18, 0.12);
+  --camera-depth-border: #aaa9a3;
+  --camera-depth-background: #e7e7e2;
+  --camera-depth-edge: #d4d4ce;
+  --camera-depth-shadow: rgba(0, 0, 0, 0.13);
+  --camera-rim: #171716;
+  --camera-window-center: #fff;
+  --camera-window-edge: #ecece7;
+  --camera-window-background: #f4f4ef;
+  --camera-window-highlight: rgba(255, 255, 255, 0.95);
+  --camera-window-shadow: rgba(70, 70, 66, 0.1);
+  --camera-window-reflection: rgba(255, 255, 255, 0.52);
+  --camera-placeholder-color: #171716;
+  --camera-button-border: #171716;
+  --camera-button-background: #171716;
+  --camera-button-color: #fff;
+  --camera-button-hover: #33332f;
+  --camera-text-button-color: #666660;
 }
 
 .theme-dark .floating-brand small,
