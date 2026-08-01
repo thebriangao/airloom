@@ -19,6 +19,18 @@ roll toggles the eraser.
 
 Mouse, keyboard, and visible-button fallbacks are included.
 
+## Phone and tablet controls
+
+- Draw or Erase: tap the active tool button to switch, then drag one finger
+- Move: select Move and drag to pan the canvas
+- View: select View and drag to orbit; use the nearby minus and plus controls to zoom
+- Object: select Object, drag a stroke group, and release near an edge or vertex to snap
+- Brush: open the right-side tab to choose color and thickness
+- More: access Shape Assist, reset, clear, export, and the complete control guide
+
+The touch layout uses a bottom dock, a full-width phone brush sheet, a wider
+landscape tool tray, and tablet-sized controls with safe-area spacing.
+
 ## Development
 
 Requires Node.js `>=22.13.0`.

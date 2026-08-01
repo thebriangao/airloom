@@ -33,6 +33,7 @@ type CameraState =
   | "calibrating"
   | "active"
   | "error";
+type TouchTool = "draw" | "pan" | "orbit" | "grab";
 type VisionFileset = Parameters<
   typeof HandLandmarker.createFromOptions
 >[0];
@@ -297,6 +298,9 @@ export function AirloomStudio() {
   const [shapeAssistEnabled, setShapeAssistEnabled] = useState(false);
   const [shapeAssistPromptOpen, setShapeAssistPromptOpen] = useState(false);
   const [shapeCorrectionNotice, setShapeCorrectionNotice] = useState("");
+  const [touchTool, setTouchTool] = useState<TouchTool>("draw");
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [touchLayout, setTouchLayout] = useState(false);
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
@@ -468,16 +472,35 @@ export function AirloomStudio() {
     [playSound],
   );
 
-  const toggleEraser = useCallback(() => {
-    const next = !eraserEnabledRef.current;
-    eraserEnabledRef.current = next;
-    setEraserEnabled(next);
+  const setEraserMode = useCallback((enabled: boolean) => {
+    if (eraserEnabledRef.current === enabled) return;
+    eraserEnabledRef.current = enabled;
+    setEraserEnabled(enabled);
     sceneRef.current?.endStroke();
     releaseObjectGrab();
     hideHoverCursor();
     previousControlRef.current = null;
-    playSound(next ? "eraserOn" : "eraserOff");
+    playSound(enabled ? "eraserOn" : "eraserOff");
   }, [hideHoverCursor, playSound, releaseObjectGrab]);
+
+  const toggleEraser = useCallback(() => {
+    setEraserMode(!eraserEnabledRef.current);
+  }, [setEraserMode]);
+
+  const selectTouchTool = useCallback(
+    (tool: TouchTool) => {
+      setTouchTool(tool);
+      setMobileActionsOpen(false);
+      sceneRef.current?.endStroke();
+      releaseObjectGrab();
+      hideHoverCursor();
+      pointerDrawingRef.current = false;
+      pointerNavigationRef.current = null;
+      pointerObjectGrabRef.current = false;
+      if (tool !== "grab") setObjectGrabSelected(false);
+    },
+    [hideHoverCursor, releaseObjectGrab],
+  );
 
   const toggleMenu = useCallback(() => {
     const next = !menuOpenRef.current;
@@ -758,6 +781,14 @@ export function AirloomStudio() {
     setShapeAssistEnabled(enabled);
     sceneRef.current?.setShapeAssistEnabled(enabled);
     if (storedChoice === null) setShapeAssistPromptOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1024px)");
+    const updateLayout = () => setTouchLayout(query.matches);
+    updateLayout();
+    query.addEventListener("change", updateLayout);
+    return () => query.removeEventListener("change", updateLayout);
   }, []);
 
   useEffect(() => {
@@ -1557,6 +1588,42 @@ export function AirloomStudio() {
     }
     if (event.button !== 0) return;
 
+    if (touchLayout && touchTool === "pan") {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerNavigationRef.current = {
+        mode: "pan",
+        x: pointer.x,
+        y: pointer.y,
+      };
+      return;
+    }
+
+    if (touchLayout && touchTool === "orbit") {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerNavigationRef.current = {
+        mode: "orbit",
+        x: pointer.x,
+        y: pointer.y,
+      };
+      return;
+    }
+
+    if (touchLayout && touchTool === "grab") {
+      releaseObjectGrab();
+      const selected = sceneRef.current?.beginObjectGrab(handPointer);
+      if (!selected) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      pointerObjectGrabRef.current = true;
+      objectGrabActiveRef.current = true;
+      pointerGrabDepthRef.current = 0;
+      setObjectGrabSelected(true);
+      updateSnapKind("none");
+      return;
+    }
+
     if (event.shiftKey) {
       releaseObjectGrab();
       const selected = sceneRef.current?.beginObjectGrab(handPointer);
@@ -1953,9 +2020,19 @@ export function AirloomStudio() {
                 : shapeCorrectionNotice
                   ? shapeCorrectionNotice
               : demoMode
-                ? eraserEnabled
-                  ? "Mouse eraser"
-                  : "Mouse drawing"
+                ? touchLayout
+                  ? touchTool === "pan"
+                    ? "Move canvas"
+                    : touchTool === "orbit"
+                      ? "Turn 3D view"
+                      : touchTool === "grab"
+                        ? "Move an object"
+                        : eraserEnabled
+                          ? "Touch eraser"
+                          : "Touch drawing"
+                  : eraserEnabled
+                    ? "Mouse eraser"
+                    : "Mouse drawing"
                 : gesture === "grab"
                   ? objectGrabSelected
                     ? snapKind === "none"
@@ -2085,6 +2162,12 @@ export function AirloomStudio() {
                 <i />
                 {menuOpen ? "EJECTED" : "LOCKED"}
               </div>
+              <button
+                className="mobile-cartridge-close"
+                onClick={() => toggleMenu()}
+              >
+                Done
+              </button>
             </header>
 
             <div className="cartridge-body">
@@ -2094,7 +2177,10 @@ export function AirloomStudio() {
                     <span>01</span>
                     <div>
                       <strong>COLOR</strong>
-                      <small>FIST + MOVE</small>
+                      <small>
+                        <span className="desktop-control-copy">FIST + MOVE</span>
+                        <span className="mobile-control-copy">TAP A SWATCH</span>
+                      </small>
                     </div>
                   </div>
 
@@ -2128,7 +2214,10 @@ export function AirloomStudio() {
                     <strong>
                       {eraserEnabled ? "ERASER SIZE" : "THICKNESS"}
                     </strong>
-                    <small>OPEN PALM + MOVE</small>
+                    <small>
+                      <span className="desktop-control-copy">OPEN PALM + MOVE</span>
+                      <span className="mobile-control-copy">DRAG THE SLIDER</span>
+                    </small>
                   </div>
                   <b>{Math.round(1 + activeThickness * 99)}</b>
                 </div>
@@ -2184,13 +2273,16 @@ export function AirloomStudio() {
               </div>
               <span className="selected-stroke-preview" />
               <small className="cartridge-gesture-hint">
-                {gesture === "fist"
-                  ? eraserEnabled
-                    ? "OPEN PALM TO SIZE"
-                    : "MOVE TO PICK COLOR"
-                  : gesture === "openPalm"
-                    ? "MOVE TO SIZE"
-                    : "SNAP TO HOLSTER"}
+                <span className="desktop-control-copy">
+                  {gesture === "fist"
+                    ? eraserEnabled
+                      ? "OPEN PALM TO SIZE"
+                      : "MOVE TO PICK COLOR"
+                    : gesture === "openPalm"
+                      ? "MOVE TO SIZE"
+                      : "SNAP TO HOLSTER"}
+                </span>
+                <span className="mobile-control-copy">TAP CLOSE TO FINISH</span>
               </small>
             </footer>
           </div>
@@ -2250,6 +2342,142 @@ export function AirloomStudio() {
           </button>
         </nav>
 
+        <div
+          data-block-canvas-input
+          className={`mobile-action-cluster ${mobileActionsOpen ? "is-open" : ""}`}
+        >
+          {mobileActionsOpen && (
+            <div className="mobile-actions-sheet" aria-label="More artwork controls">
+              <button
+                className={shapeAssistEnabled ? "is-active" : ""}
+                onClick={() => chooseShapeAssist(!shapeAssistEnabledRef.current)}
+                aria-pressed={shapeAssistEnabled}
+              >
+                <span>Auto</span>
+                <small>{shapeAssistEnabled ? "On" : "Off"}</small>
+              </button>
+              <button
+                onClick={() => {
+                  releaseObjectGrab();
+                  resetSideViewControl();
+                  sceneRef.current?.resetView();
+                  setMobileActionsOpen(false);
+                }}
+              >
+                <span>Reset</span>
+                <small>View</small>
+              </button>
+              <button
+                onClick={() => {
+                  releaseObjectGrab();
+                  sceneRef.current?.clear();
+                  depthCalibrationRef.current = null;
+                  setMobileActionsOpen(false);
+                }}
+              >
+                <span>Clear</span>
+                <small>Canvas</small>
+              </button>
+              <button
+                onClick={() => {
+                  void exportArtwork();
+                  setMobileActionsOpen(false);
+                }}
+              >
+                <span>Export</span>
+                <small>PNG</small>
+              </button>
+              <button
+                onClick={() => {
+                  setHelpOpen((value) => !value);
+                  setMobileActionsOpen(false);
+                }}
+              >
+                <span>Controls</span>
+                <small>Guide</small>
+              </button>
+            </div>
+          )}
+
+          {(touchTool === "orbit" || touchTool === "grab") && (
+            <div className="mobile-depth-control">
+              <button
+                onClick={() => sceneRef.current?.orbit(0, 0, -0.035)}
+                aria-label="Zoom out"
+                disabled={touchTool === "grab"}
+              >
+                −
+              </button>
+              <span>
+                {touchTool === "orbit"
+                  ? "DRAG TO ORBIT · USE −/+ TO ZOOM"
+                  : "DRAG AN OBJECT · RELEASE TO SNAP"}
+              </span>
+              <button
+                onClick={() => sceneRef.current?.orbit(0, 0, 0.035)}
+                aria-label="Zoom in"
+                disabled={touchTool === "grab"}
+              >
+                +
+              </button>
+            </div>
+          )}
+
+          <nav
+            className="mobile-tools"
+            aria-label="Touch artwork controls"
+            inert={!demoMode}
+            aria-disabled={!demoMode}
+          >
+            <button onClick={undoArtwork}>
+              <span>↶</span>
+              <small>Undo</small>
+            </button>
+            <button
+              className={touchTool === "draw" ? "is-active" : ""}
+              onClick={() => {
+                if (touchTool !== "draw") {
+                  selectTouchTool("draw");
+                } else {
+                  setEraserMode(!eraserEnabledRef.current);
+                }
+              }}
+            >
+              <span>{eraserEnabled ? "ER" : "DR"}</span>
+              <small>{eraserEnabled ? "Erase" : "Draw"}</small>
+            </button>
+            <button
+              className={touchTool === "pan" ? "is-active" : ""}
+              onClick={() => selectTouchTool("pan")}
+            >
+              <span>↔</span>
+              <small>Move</small>
+            </button>
+            <button
+              className={touchTool === "orbit" ? "is-active" : ""}
+              onClick={() => selectTouchTool("orbit")}
+            >
+              <span>360</span>
+              <small>View</small>
+            </button>
+            <button
+              className={touchTool === "grab" ? "is-active" : ""}
+              onClick={() => selectTouchTool("grab")}
+            >
+              <span>□</span>
+              <small>Object</small>
+            </button>
+            <button
+              className={mobileActionsOpen ? "is-active" : ""}
+              onClick={() => setMobileActionsOpen((value) => !value)}
+              aria-expanded={mobileActionsOpen}
+            >
+              <span>•••</span>
+              <small>More</small>
+            </button>
+          </nav>
+        </div>
+
         {helpOpen && (
           <aside
             data-block-canvas-input
@@ -2261,38 +2489,45 @@ export function AirloomStudio() {
                 <span>CONTROL MAP</span>
                 <strong>ALL AIRLOOM CONTROLS</strong>
               </div>
-              <small>CLICK ? TO CLOSE</small>
+              <button
+                className="gesture-guide-close"
+                onClick={() => setHelpOpen(false)}
+              >
+                Close
+              </button>
             </header>
             <div className="gesture-guide-columns" aria-hidden="true">
               <span>ACTION</span>
               <b>HAND + CAMERA</b>
-              <strong>KEYBOARD + MOUSE</strong>
+              <strong className="desktop-control-copy">KEYBOARD + MOUSE</strong>
+              <strong className="mobile-control-copy">TOUCH CONTROLS</strong>
             </div>
             {[
-              ["CURSOR", "Thumb + index apart", "Hover over canvas"],
-              ["DRAW", "Pinch thumb + index; separate to stop", "Left-drag; release to stop"],
-              ["PAN", "Two fingers + move", "Two-finger swipe or middle-drag"],
-              ["ORBIT", "Three fingers + move", "Right-drag or Option/Shift + swipe"],
-              ["ZOOM", "Three fingers + hand in/out", "Trackpad pinch or Ctrl + wheel"],
-              ["SIDE VIEW", "Index up + move; release springs back", "Drag viewer; release springs back"],
-              ["PALETTE", "No hands; jerk head left to open, right to close", "Click side tab; Escape closes"],
-              ["COLOR", "Fist + move inside palette", "Click a swatch"],
-              ["TOOL SIZE", "Open palm + move inside palette", "Drag active tool slider"],
-              ["ERASER", "Quick palm-to-back wrist roll", "Double-click canvas or click Eraser"],
-              ["MOVE", "Fist over object; open to release", "Shift + left-drag object; release"],
-              ["DEPTH", "Grab + move hand in/out", "Wheel while holding object"],
-              ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex"],
-              ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo"],
-              ["SHAPE ASSIST", "Choose before camera mode", "Click Auto On/Off"],
-              ["RESET VIEW", "Manual button", "Click Reset view"],
-              ["CLEAR", "Manual button", "Click Clear"],
-              ["EXPORT", "Manual button", "Click Export"],
-              ["MODE", "Enable camera", "Exit camera to unlock controls"],
-            ].map(([action, hand, combined]) => (
+              ["CURSOR", "Thumb + index apart", "Hover over canvas", "Touch follows the active tool"],
+              ["DRAW", "Pinch thumb + index; separate to stop", "Left-drag; release to stop", "Choose Draw, then drag"],
+              ["PAN", "Two fingers + move", "Two-finger swipe or middle-drag", "Choose Move, then drag"],
+              ["ORBIT", "Three fingers + move", "Right-drag or Option/Shift + swipe", "Choose View, then drag"],
+              ["ZOOM", "Three fingers + hand in/out", "Trackpad pinch or Ctrl + wheel", "Use −/+ above the dock"],
+              ["SIDE VIEW", "Index up + move; release springs back", "Drag viewer; release springs back", "Drag the side viewer"],
+              ["PALETTE", "No hands; jerk head left to open, right to close", "Click side tab; Escape closes", "Tap the side Brush tab"],
+              ["COLOR", "Fist + move inside palette", "Click a swatch", "Tap a swatch"],
+              ["TOOL SIZE", "Open palm + move inside palette", "Drag active tool slider", "Drag the size slider"],
+              ["ERASER", "Quick palm-to-back wrist roll", "Double-click canvas or click Eraser", "Tap Draw to switch to Erase"],
+              ["MOVE", "Fist over object; open to release", "Shift + left-drag object; release", "Choose Object, drag, release"],
+              ["DEPTH", "Grab + move hand in/out", "Wheel while holding object", "Use camera mode for object depth"],
+              ["SNAP", "Release near an edge or vertex", "Release near an edge or vertex", "Release near an edge or vertex"],
+              ["UNDO", "Open-palm swipe left", "Cmd/Ctrl+Z or click Undo", "Tap Undo"],
+              ["SHAPE ASSIST", "Choose before camera mode", "Click Auto On/Off", "More, then Auto"],
+              ["RESET VIEW", "Manual button", "Click Reset view", "More, then Reset"],
+              ["CLEAR", "Manual button", "Click Clear", "More, then Clear"],
+              ["EXPORT", "Manual button", "Click Export", "More, then Export"],
+              ["MODE", "Enable camera", "Exit camera to unlock controls", "Use the camera card; Exit returns to touch"],
+            ].map(([action, hand, combined, touch]) => (
               <div className="gesture-guide-row" key={action}>
                 <span>{action}</span>
                 <b>{hand}</b>
-                <strong>{combined}</strong>
+                <strong className="desktop-control-copy">{combined}</strong>
+                <strong className="mobile-control-copy">{touch}</strong>
               </div>
             ))}
           </aside>
