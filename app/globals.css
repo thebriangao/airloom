@@ -73,10 +73,8 @@ button {
   cursor: none;
 }
 
-.white-workspace.camera-mode .brush-cartridge-shell button,
-.white-workspace.camera-mode .brush-cartridge-shell input,
-.white-workspace.camera-mode .minimal-tools button {
-  cursor: none;
+.white-workspace.camera-mode {
+  cursor: default;
 }
 
 .air-canvas {
