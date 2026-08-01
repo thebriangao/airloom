@@ -318,7 +318,7 @@ export function AirloomStudio() {
   const [cameraError, setCameraError] = useState("");
   const [gesture, setGesture] = useState<HandPose>("none");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [colorIndex, setColorIndex] = useState(0);
+  const [colorIndex, setColorIndex] = useState(DEFAULT_COLOR_INDEX.dark);
   const [thickness, setThickness] = useState(0.32);
   const [eraserThickness, setEraserThickness] = useState(0.42);
   const [eraserEnabled, setEraserEnabled] = useState(false);
@@ -331,7 +331,7 @@ export function AirloomStudio() {
   const [sideViewReturning, setSideViewReturning] = useState(false);
   const [shapeAssistEnabled, setShapeAssistEnabled] = useState(false);
   const [lineSmoothingEnabled, setLineSmoothingEnabled] = useState(true);
-  const [theme, setTheme] = useState<ThemeMode>("light");
+  const [theme, setTheme] = useState<ThemeMode>("dark");
   const [shapeAssistPromptOpen, setShapeAssistPromptOpen] = useState(false);
   const [shapeCorrectionNotice, setShapeCorrectionNotice] = useState("");
   const [touchTool, setTouchTool] = useState<TouchTool>("draw");
@@ -881,11 +881,7 @@ export function AirloomStudio() {
       setTheme(storedTheme);
       return;
     }
-    setTheme(
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light",
-    );
+    setTheme("dark");
   }, []);
 
   useEffect(() => {
