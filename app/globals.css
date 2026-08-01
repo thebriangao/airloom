@@ -449,7 +449,11 @@ button {
   --camera-depth-background: #191919;
   --camera-depth-edge: #050505;
   --camera-depth-shadow: rgba(0, 0, 0, 0.16);
-  --camera-rim: #e7e7e2;
+  --camera-rim-base: rgba(8, 10, 14, 0.7);
+  --camera-rim-soft: rgba(25, 29, 36, 0.44);
+  --camera-rim-highlight: rgba(255, 255, 255, 0.25);
+  --camera-rim-edge: rgba(0, 0, 0, 0.62);
+  --camera-rim-glow: rgba(255, 255, 255, 0.08);
   --camera-window-center: #3b3b3b;
   --camera-window-edge: #171717;
   --camera-window-background: #171717;
@@ -487,8 +491,9 @@ button {
 .camera-window {
   position: absolute;
   inset: 0;
+  isolation: isolate;
   overflow: hidden;
-  border: 2px solid var(--camera-rim);
+  border: 2px solid transparent;
   border-radius: 42px 31px 46px 35px;
   background:
     radial-gradient(
@@ -497,13 +502,54 @@ button {
       var(--camera-window-edge) 68%
     ),
     var(--camera-window-background);
+  background-clip: padding-box;
   box-shadow:
     0 2px 0 var(--camera-window-highlight) inset,
     0 -8px 16px var(--camera-window-shadow) inset;
 }
 
+.camera-window::before {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background:
+    radial-gradient(
+      circle at 20% -25%,
+      var(--camera-rim-highlight),
+      transparent 42%
+    ),
+    linear-gradient(
+      112deg,
+      var(--camera-rim-highlight),
+      var(--camera-rim-soft) 24%,
+      var(--camera-rim-base) 48%,
+      var(--camera-rim-glow) 72%,
+      var(--camera-rim-soft) 88%,
+      var(--camera-rim-highlight)
+    );
+  box-shadow:
+    0 1px 1px var(--camera-rim-highlight) inset,
+    0 -1px 2px var(--camera-rim-edge) inset,
+    0 0 7px var(--camera-rim-glow),
+    0 1px 4px var(--camera-rim-edge);
+  content: "";
+  pointer-events: none;
+  filter: url("#airloom-liquid-refraction") saturate(1.15);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+
 .camera-window::after {
   position: absolute;
+  z-index: 3;
   inset: 0;
   border: 7px solid var(--camera-window-reflection);
   border-radius: inherit;
@@ -1413,7 +1459,11 @@ button {
   --camera-depth-background: #e7e7e2;
   --camera-depth-edge: #d4d4ce;
   --camera-depth-shadow: rgba(0, 0, 0, 0.13);
-  --camera-rim: #171716;
+  --camera-rim-base: rgba(255, 255, 255, 0.7);
+  --camera-rim-soft: rgba(244, 245, 241, 0.44);
+  --camera-rim-highlight: rgba(255, 255, 255, 0.96);
+  --camera-rim-edge: rgba(101, 103, 101, 0.22);
+  --camera-rim-glow: rgba(255, 255, 255, 0.38);
   --camera-window-center: #fff;
   --camera-window-edge: #ecece7;
   --camera-window-background: #f4f4ef;
