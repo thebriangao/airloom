@@ -8,8 +8,10 @@ import type {
 const HOLD_MS = 40;
 const DRAW_TOUCH_START_RATIO_2D = 0.48;
 const DRAW_TOUCH_START_RATIO_3D = 0.68;
+const DRAW_TOUCH_UNAMBIGUOUS_RATIO_2D = 0.28;
 const DRAW_TOUCH_RELEASE_RATIO_2D = 0.54;
 const DRAW_TOUCH_RELEASE_RATIO_3D = 0.74;
+const DRAW_TOUCH_RELEASE_OVERRIDE_RATIO_2D = 0.34;
 const DRAW_RELEASE_CONFIRM_MS = 45;
 const FIST_INTENT_HOLD_MS = 85;
 const OBJECT_GRAB_HOLD_MS = 140;
@@ -84,22 +86,16 @@ function measurePinch(landmarks: Landmark[]) {
     distance2D(landmarks[4], landmarks[8]) / palmSpan2D;
   const thumbIndexRatio3D =
     distance(landmarks[4], landmarks[8]) / palmSpan3D;
-  const wrist = landmarks[0];
-  const indexMiddle = landmarks[6];
-  const indexTip = landmarks[8];
-  const indexReach =
-    distance(indexTip, wrist) /
-    Math.max(0.0001, distance(indexMiddle, wrist));
 
   return {
     start:
       thumbIndexRatio2D <= DRAW_TOUCH_START_RATIO_2D &&
-      thumbIndexRatio3D <= DRAW_TOUCH_START_RATIO_3D &&
-      indexReach >= 1.025,
+      (thumbIndexRatio3D <= DRAW_TOUCH_START_RATIO_3D ||
+        thumbIndexRatio2D <= DRAW_TOUCH_UNAMBIGUOUS_RATIO_2D),
     continue:
       thumbIndexRatio2D <= DRAW_TOUCH_RELEASE_RATIO_2D &&
-      thumbIndexRatio3D <= DRAW_TOUCH_RELEASE_RATIO_3D &&
-      indexReach >= 0.98,
+      (thumbIndexRatio3D <= DRAW_TOUCH_RELEASE_RATIO_3D ||
+        thumbIndexRatio2D <= DRAW_TOUCH_RELEASE_OVERRIDE_RATIO_2D),
     handScale: distance(landmarks[0], landmarks[9]),
   };
 }
