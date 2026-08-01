@@ -6,11 +6,10 @@ import type {
 } from "./types";
 
 const HOLD_MS = 28;
-const DRAW_PINCH_START_RATIO = 0.52;
-const DRAW_PINCH_RELEASE_RATIO = 0.9;
-const DRAW_PINCH_START_DISTANCE = 0.06;
-const DRAW_PINCH_RELEASE_DISTANCE = 0.085;
-const DRAW_PINCH_RELEASE_HOLD_MS = 28;
+// Require the detected thumb and index tips to pass calibrated 2D and 3D
+// hand-relative contact limits at the same time.
+const DRAW_TOUCH_START_RATIO_2D = 0.48;
+const DRAW_TOUCH_START_RATIO_3D = 0.68;
 const OBJECT_GRAB_HOLD_MS = 28;
 const OBJECT_GRAB_RELEASE_MS = 70;
 
@@ -126,8 +125,6 @@ export class GestureEngine {
   private candidateSince = 0;
   private stable: HandPose = "none";
   private drawingPinch = false;
-  private drawingPinchReleaseAt = 0;
-  private filteredThumbIndexRatio = 1;
   private objectGrab = false;
   private objectGrabCandidateAt = 0;
   private objectGrabReleaseAt = 0;
@@ -176,40 +173,21 @@ export class GestureEngine {
       0.025,
       distance2D(landmarks[5], landmarks[17]),
     );
-    const thumbIndexDistance = distance2D(landmarks[4], landmarks[8]);
-    const thumbIndexRatio = thumbIndexDistance / palmSpan2D;
-    this.filteredThumbIndexRatio =
-      this.filteredThumbIndexRatio * 0.45 + thumbIndexRatio * 0.55;
-    if (fist || this.objectGrab) {
-      this.drawingPinch = false;
-      this.drawingPinchReleaseAt = 0;
-    } else if (this.drawingPinch) {
-      const releaseSignal =
-        thumbIndexRatio > DRAW_PINCH_RELEASE_RATIO &&
-        thumbIndexDistance > DRAW_PINCH_RELEASE_DISTANCE;
-      if (releaseSignal) {
-        if (this.drawingPinchReleaseAt === 0) {
-          this.drawingPinchReleaseAt = timestamp;
-        } else if (
-          timestamp - this.drawingPinchReleaseAt >=
-            DRAW_PINCH_RELEASE_HOLD_MS &&
-          this.filteredThumbIndexRatio >
-            DRAW_PINCH_RELEASE_RATIO * 0.82
-        ) {
-          this.drawingPinch = false;
-          this.drawingPinchReleaseAt = 0;
-        }
-      } else {
-        this.drawingPinchReleaseAt = 0;
-      }
-    } else if (
-      thumbIndexRatio < DRAW_PINCH_START_RATIO ||
-      thumbIndexDistance < DRAW_PINCH_START_DISTANCE
-    ) {
-      this.drawingPinch = true;
-      this.drawingPinchReleaseAt = 0;
-      this.filteredThumbIndexRatio = thumbIndexRatio;
-    }
+    const palmSpan3D = Math.max(
+      0.025,
+      distance(landmarks[5], landmarks[17]),
+    );
+    const thumbIndexRatio2D =
+      distance2D(landmarks[4], landmarks[8]) / palmSpan2D;
+    const thumbIndexRatio3D =
+      distance(landmarks[4], landmarks[8]) / palmSpan3D;
+    const fingertipsTouching =
+      thumbIndexRatio2D <= DRAW_TOUCH_START_RATIO_2D &&
+      thumbIndexRatio3D <= DRAW_TOUCH_START_RATIO_3D;
+    // Evaluate contact from the raw landmarks on every camera frame. There is
+    // intentionally no release delay or latched pinch state: the first frame
+    // that no longer shows fingertip contact ends the stroke.
+    this.drawingPinch = !fist && !this.objectGrab && fingertipsTouching;
 
     const sideViewControl =
       indexPointingUp &&
@@ -221,7 +199,7 @@ export class GestureEngine {
       !this.objectGrab &&
       !fist &&
       !sideViewControl &&
-      thumbIndexRatio > 0.68 &&
+      !fingertipsTouching &&
       rawPose !== "pan2d" &&
       rawPose !== "orbit3d" &&
       rawPose !== "fist";
@@ -246,8 +224,6 @@ export class GestureEngine {
     this.stable = "none";
     this.candidateSince = 0;
     this.drawingPinch = false;
-    this.drawingPinchReleaseAt = 0;
-    this.filteredThumbIndexRatio = 1;
     this.objectGrab = false;
     this.objectGrabCandidateAt = 0;
     this.objectGrabReleaseAt = 0;

@@ -1,12 +1,13 @@
 # Airloom
 
 Airloom is a browser-based 3D painting instrument controlled by hand gestures.
-One finger draws, two fingers pan, three fingers orbit, a quick head turn opens
-or closes the brush cartridge, and a fast wrist roll toggles the eraser.
+Touching the thumb and index fingertips draws, two fingers pan, three fingers
+orbit, a quick head turn opens or closes the brush cartridge, and a fast wrist
+roll toggles the eraser.
 
 ## Interaction map
 
-- One raised finger: draw a 3D stroke
+- Thumb and index fingertips touching: draw a 3D stroke; separate them to stop immediately
 - Two raised fingers: pan the artwork in 2D
 - Three raised fingers: orbit and zoom the artwork
 - With no hands visible, jerk your head left to open the cartridge and right to close it
