@@ -94,7 +94,34 @@ const pointerIsDirectlyOnCanvas = (
   clientX: number,
   clientY: number,
   canvas: HTMLCanvasElement | null,
-) => canvas !== null && document.elementFromPoint(clientX, clientY) === canvas;
+) => {
+  if (!canvas) return false;
+  const blockers = document.querySelectorAll<HTMLElement>(
+    "[data-block-canvas-input]",
+  );
+  for (const blocker of blockers) {
+    const style = window.getComputedStyle(blocker);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number.parseFloat(style.opacity || "1") <= 0.01
+    ) {
+      continue;
+    }
+    const bounds = blocker.getBoundingClientRect();
+    if (
+      bounds.width > 0 &&
+      bounds.height > 0 &&
+      clientX >= bounds.left &&
+      clientX <= bounds.right &&
+      clientY >= bounds.top &&
+      clientY <= bounds.bottom
+    ) {
+      return false;
+    }
+  }
+  return document.elementFromPoint(clientX, clientY) === canvas;
+};
 
 const responsiveBlend = (
   distance: number,
@@ -344,6 +371,33 @@ export function AirloomStudio() {
     setObjectGrabSelected(false);
     updateSnapKind("none");
   }, [updateSnapKind]);
+
+  const cancelManualCanvasInput = useCallback(
+    (pointerId?: number) => {
+      const wasDrawing = pointerDrawingRef.current;
+      pointerDrawingRef.current = false;
+      pointerHoverActiveRef.current = false;
+      pointerNavigationRef.current = null;
+      pointerPressRef.current = null;
+      pointerClickStrokeCountRef.current = 0;
+      lastPointerPositionRef.current = null;
+      if (wasDrawing) sceneRef.current?.endStroke();
+      if (pointerObjectGrabRef.current) {
+        pointerObjectGrabRef.current = false;
+        releaseObjectGrab();
+      }
+      const canvas = canvasRef.current;
+      if (
+        canvas &&
+        pointerId !== undefined &&
+        canvas.hasPointerCapture(pointerId)
+      ) {
+        canvas.releasePointerCapture(pointerId);
+      }
+      hideHoverCursor();
+    },
+    [hideHoverCursor, releaseObjectGrab],
+  );
 
   const primeAudio = useCallback((): AudioContext | null => {
     try {
@@ -856,21 +910,35 @@ export function AirloomStudio() {
 
   useEffect(() => {
     if (demoMode) return;
-    pointerDrawingRef.current = false;
-    pointerHoverActiveRef.current = false;
-    pointerObjectGrabRef.current = false;
-    pointerNavigationRef.current = null;
-    pointerPressRef.current = null;
-    sceneRef.current?.endStroke();
+    cancelManualCanvasInput();
     resetSideViewControl();
-    releaseObjectGrab();
-    hideHoverCursor();
   }, [
+    cancelManualCanvasInput,
     demoMode,
-    hideHoverCursor,
-    releaseObjectGrab,
     resetSideViewControl,
   ]);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    const enforceCanvasBoundary = (event: PointerEvent) => {
+      if (
+        pointerIsDirectlyOnCanvas(
+          event.clientX,
+          event.clientY,
+          canvasRef.current,
+        )
+      ) {
+        return;
+      }
+      cancelManualCanvasInput(event.pointerId);
+    };
+    window.addEventListener("pointermove", enforceCanvasBoundary, true);
+    window.addEventListener("pointerover", enforceCanvasBoundary, true);
+    return () => {
+      window.removeEventListener("pointermove", enforceCanvasBoundary, true);
+      window.removeEventListener("pointerover", enforceCanvasBoundary, true);
+    };
+  }, [cancelManualCanvasInput, demoMode]);
 
   const applyToolAtPoint = useCallback((point: Parameters<AirScene["addPoint"]>[0]) => {
     if (eraserEnabledRef.current) {
@@ -1706,22 +1774,7 @@ export function AirloomStudio() {
         canvasRef.current,
       )
     ) {
-      if (pointerDrawingRef.current) {
-        pointerDrawingRef.current = false;
-        pointerPressRef.current = null;
-        pointerClickStrokeCountRef.current = 0;
-        sceneRef.current?.endStroke();
-      }
-      pointerNavigationRef.current = null;
-      if (pointerObjectGrabRef.current) {
-        pointerObjectGrabRef.current = false;
-        releaseObjectGrab();
-      }
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-      pointerHoverActiveRef.current = false;
-      hideHoverCursor();
+      cancelManualCanvasInput(event.pointerId);
       return;
     }
     const pointer = pointerPosition(event);
@@ -2060,7 +2113,7 @@ export function AirloomStudio() {
           </footer>
         </aside>
 
-        <header className="floating-brand">
+        <header data-block-canvas-input className="floating-brand">
           <span className="brand-dot" />
           <div>
             <strong>AIRLOOM</strong>
@@ -2068,7 +2121,11 @@ export function AirloomStudio() {
           </div>
         </header>
 
-        <div className="gesture-pill" aria-live="polite">
+        <div
+          data-block-canvas-input
+          className="gesture-pill"
+          aria-live="polite"
+        >
           <span className={cameraState === "active" ? "live-dot" : "idle-dot"} />
           {cameraState === "requesting"
             ? "Waiting for camera permission"
@@ -2176,7 +2233,6 @@ export function AirloomStudio() {
         </aside>
 
         <aside
-          data-block-canvas-input
           className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
@@ -2184,6 +2240,7 @@ export function AirloomStudio() {
           aria-disabled={!demoMode}
         >
           <button
+            data-block-canvas-input
             className="cartridge-tab"
             onClick={() => {
               primeAudio();
@@ -2207,6 +2264,7 @@ export function AirloomStudio() {
           </button>
 
           <div
+            data-block-canvas-input
             id="brush-cartridge"
             className="brush-cartridge"
             aria-hidden={!menuOpen}
@@ -2648,7 +2706,7 @@ export function AirloomStudio() {
           </div>
         )}
 
-        <p className="canvas-hint">
+        <p data-block-canvas-input className="canvas-hint">
           {cameraState === "active"
             ? "Gesture mode active · Exit camera to use keyboard + mouse"
             : cameraState === "calibrating"
