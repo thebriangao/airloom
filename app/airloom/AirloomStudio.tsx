@@ -83,6 +83,17 @@ const WRIST_ROLL_COOLDOWN_MS = 900;
 const SHAPE_ASSIST_STORAGE_KEY = "airloom-shape-assist-choice-v1";
 const LINE_SMOOTHING_STORAGE_KEY = "airloom-line-smoothing-choice-v1";
 const THEME_STORAGE_KEY = "airloom-theme-choice-v1";
+const CAMERA_DISPLAY_CONSTRAINTS: MediaTrackConstraints = {
+  facingMode: { ideal: "user" },
+  width: { ideal: 3840 },
+  height: { ideal: 2160 },
+  frameRate: { ideal: 60 },
+};
+const CAMERA_TRACKING_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 640 },
+  height: { ideal: 360 },
+  frameRate: { ideal: 60 },
+};
 
 const SHAPE_CORRECTION_LABELS: Record<CorrectedShapeKind, string> = {
   line: "Line perfected",
@@ -236,6 +247,7 @@ type HeadTurnState = {
 export function AirloomStudio() {
   const stageRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const trackingVideoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sideCanvasRef = useRef<HTMLCanvasElement>(null);
   const hoverCursorRef = useRef<HTMLDivElement>(null);
@@ -246,6 +258,7 @@ export function AirloomStudio() {
   const faceLandmarkerPromiseRef = useRef<Promise<FaceLandmarker> | null>(null);
   const visionFilesetPromiseRef = useRef<Promise<VisionFileset> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const trackingStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackingFrameRef = useRef(0);
   const trackingActiveRef = useRef(false);
@@ -1477,10 +1490,20 @@ export function AirloomStudio() {
   const stopCamera = useCallback(() => {
     trackingActiveRef.current = false;
     window.cancelAnimationFrame(trackingFrameRef.current);
-    videoRef.current?.cancelVideoFrameCallback?.(trackingFrameRef.current);
+    trackingVideoRef.current?.cancelVideoFrameCallback?.(
+      trackingFrameRef.current,
+    );
+    trackingStreamRef.current
+      ?.getTracks()
+      .forEach((track) => track.stop());
+    trackingStreamRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
+    if (trackingVideoRef.current) {
+      trackingVideoRef.current.pause();
+      trackingVideoRef.current.srcObject = null;
+    }
     gestureEngineRef.current.reset();
     previousControlRef.current = null;
     filteredTipRef.current = null;
@@ -1538,7 +1561,7 @@ export function AirloomStudio() {
 
     const processVideoFrame = (timestamp: number) => {
       if (!trackingActiveRef.current) return;
-      const video = videoRef.current;
+      const video = trackingVideoRef.current;
       const landmarker = handLandmarkerRef.current;
       if (
         video &&
@@ -1569,7 +1592,7 @@ export function AirloomStudio() {
 
     const scheduleVideoFrame = () => {
       if (!trackingActiveRef.current) return;
-      const video = videoRef.current;
+      const video = trackingVideoRef.current;
       if (video?.requestVideoFrameCallback) {
         trackingFrameRef.current = video.requestVideoFrameCallback(
           (timestamp) => {
@@ -1611,18 +1634,27 @@ export function AirloomStudio() {
         );
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { ideal: 60 },
-        },
+        video: CAMERA_DISPLAY_CONSTRAINTS,
         audio: false,
       });
       streamRef.current = stream;
-      if (!videoRef.current) throw new Error("Camera surface unavailable.");
+      if (!videoRef.current || !trackingVideoRef.current) {
+        throw new Error("Camera surface unavailable.");
+      }
+      const displayTrack = stream.getVideoTracks()[0];
+      if (!displayTrack) throw new Error("Camera video is unavailable.");
+      const trackingTrack = displayTrack.clone();
+      await trackingTrack
+        .applyConstraints(CAMERA_TRACKING_CONSTRAINTS)
+        .catch(() => undefined);
+      const trackingStream = new MediaStream([trackingTrack]);
+      trackingStreamRef.current = trackingStream;
       videoRef.current.srcObject = stream;
-      await videoRef.current.play();
+      trackingVideoRef.current.srcObject = trackingStream;
+      await Promise.all([
+        videoRef.current.play(),
+        trackingVideoRef.current.play(),
+      ]);
       setCameraState("calibrating");
       await landmarkerPromise;
       if (streamRef.current !== stream) return;
@@ -2254,6 +2286,13 @@ export function AirloomStudio() {
               className={`camera-feed ${cameraHasVideo ? "is-visible" : ""}`}
               muted
               playsInline
+            />
+            <video
+              ref={trackingVideoRef}
+              className="camera-tracking-feed"
+              muted
+              playsInline
+              aria-hidden="true"
             />
             {!cameraHasVideo && (
               <div className="camera-placeholder">
