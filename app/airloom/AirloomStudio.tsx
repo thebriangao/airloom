@@ -35,6 +35,10 @@ type CameraState =
   | "error";
 type TouchTool = "draw" | "pan" | "orbit" | "grab";
 type ThemeMode = "light" | "dark";
+const DEFAULT_COLOR_INDEX: Record<ThemeMode, number> = {
+  light: 0,
+  dark: 4,
+};
 type VisionFileset = Parameters<
   typeof HandLandmarker.createFromOptions
 >[0];
@@ -268,6 +272,7 @@ export function AirloomStudio() {
   const grabDepthCalibrationRef = useRef<DepthCalibration | null>(null);
   const menuOpenRef = useRef(false);
   const colorIndexRef = useRef(0);
+  const themeOwnsColorRef = useRef(true);
   const thicknessRef = useRef(0.32);
   const eraserThicknessRef = useRef(0.42);
   const eraserEnabledRef = useRef(false);
@@ -490,7 +495,8 @@ export function AirloomStudio() {
   }, []);
 
   const selectColor = useCallback(
-    (index: number, audible = true) => {
+    (index: number, audible = true, automatic = false) => {
+      if (!automatic) themeOwnsColorRef.current = false;
       const next = clamp(index, 0, AIRLOOM_COLORS.length - 1);
       if (colorIndexRef.current === next) return;
       colorIndexRef.current = next;
@@ -881,6 +887,11 @@ export function AirloomStudio() {
         : "light",
     );
   }, []);
+
+  useEffect(() => {
+    if (!themeOwnsColorRef.current) return;
+    selectColor(DEFAULT_COLOR_INDEX[theme], false, true);
+  }, [selectColor, theme]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1024px)");
