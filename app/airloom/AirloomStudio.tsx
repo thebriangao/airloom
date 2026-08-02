@@ -3148,8 +3148,8 @@ export function AirloomStudio() {
             >
               <header>
                 <div>
-                  <span>EXPORT</span>
-                  <strong id="export-dialog-title">Choose a format</strong>
+                  <span>EXPORT AIRLOOM</span>
+                  <strong id="export-dialog-title">Choose your format</strong>
                 </div>
                 <button
                   className="export-dialog-close"
@@ -3157,21 +3157,19 @@ export function AirloomStudio() {
                   disabled={exportingFormat !== null}
                   aria-label="Close export options"
                 >
-                  <span aria-hidden="true">×</span>
+                  Close
                 </button>
               </header>
 
-              <div className="export-format-list">
-                <section className="export-format-group">
-                  <div className="export-format-copy">
-                    <span>IMAGE</span>
-                    <p>Current view · clean background</p>
+              <div className="export-options">
+                <section className="export-option export-option-png">
+                  <div className="export-option-mark">PNG</div>
+                  <div>
+                    <span>2D IMAGE</span>
+                    <h2>Clean canvas renders</h2>
+                    <p>Current view on a solid background with no grid dots.</p>
                   </div>
-                  <div
-                    className="export-format-picker export-image-picker"
-                    role="group"
-                    aria-label="Image formats"
-                  >
+                  <div className="export-image-actions">
                     <button
                       onClick={() => void chooseExport("png")}
                       disabled={!hasArtwork || exportingFormat !== null}
@@ -3202,16 +3200,14 @@ export function AirloomStudio() {
                   </div>
                 </section>
 
-                <section className="export-format-group">
-                  <div className="export-format-copy">
-                    <span>3D MODEL</span>
-                    <p>Real geometry · centered in space</p>
+                <section className="export-option export-option-model">
+                  <div className="export-option-mark">3D</div>
+                  <div>
+                    <span>TRUE 3D MODEL</span>
+                    <h2>Every stroke as geometry</h2>
+                    <p>Centered tubular meshes with the depth you drew.</p>
                   </div>
-                  <div
-                    className="export-format-picker export-model-picker"
-                    role="group"
-                    aria-label="3D model formats"
-                  >
+                  <div className="export-model-actions">
                     <button
                       onClick={() => void chooseExport("glb")}
                       disabled={!hasArtwork || exportingFormat !== null}

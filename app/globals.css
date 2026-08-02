@@ -1224,63 +1224,30 @@ button {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgba(245, 245, 240, 0.38);
-  backdrop-filter: blur(14px) saturate(125%);
-  -webkit-backdrop-filter: blur(14px) saturate(125%);
-  animation: export-scrim-in 180ms ease-out both;
+  background: rgba(246, 246, 241, 0.7);
+  backdrop-filter: blur(9px) saturate(130%);
+  -webkit-backdrop-filter: blur(9px) saturate(130%);
 }
 
 .export-dialog {
-  position: relative;
-  width: min(640px, calc(100vw - 40px));
+  width: min(760px, calc(100vw - 40px));
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.78);
-  border-radius: 28px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.69), rgba(242, 242, 237, 0.42)),
-    rgba(247, 247, 243, 0.58);
+  border: 1px solid #111;
+  border-radius: 26px;
+  background: rgba(251, 251, 248, 0.96);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.92) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.28) inset,
-    0 26px 80px rgba(24, 24, 20, 0.17),
-    0 4px 18px rgba(24, 24, 20, 0.08);
+    0 1px 0 #fff inset,
+    0 28px 80px rgba(0, 0, 0, 0.18);
   color: #111;
-  backdrop-filter: blur(34px) saturate(170%) brightness(1.04);
-  -webkit-backdrop-filter: blur(34px) saturate(170%) brightness(1.04);
-  animation: export-dialog-in 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.export-dialog::before {
-  position: absolute;
-  z-index: 0;
-  top: -55%;
-  left: -18%;
-  width: 72%;
-  height: 115%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.62),
-    rgba(255, 255, 255, 0) 68%
-  );
-  content: "";
-  opacity: 0.72;
-  pointer-events: none;
-  transform: rotate(-18deg);
-}
-
-.export-dialog > * {
-  position: relative;
-  z-index: 1;
 }
 
 .export-dialog > header {
   display: flex;
-  min-height: 76px;
+  min-height: 74px;
   align-items: center;
   justify-content: space-between;
-  padding: 0 26px;
-  border-bottom: 1px solid rgba(24, 24, 20, 0.09);
+  padding: 0 24px;
+  border-bottom: 1px solid #d9d9d3;
 }
 
 .export-dialog > header div {
@@ -1289,7 +1256,7 @@ button {
 }
 
 .export-dialog > header span,
-.export-format-copy span,
+.export-option > div > span,
 .export-dialog-message {
   font-family: var(--font-geist-mono), monospace;
   letter-spacing: 0.11em;
@@ -1297,228 +1264,164 @@ button {
 }
 
 .export-dialog > header span {
-  color: rgba(17, 17, 17, 0.44);
+  color: #858580;
   font-size: 7px;
 }
 
 .export-dialog > header strong {
-  font-size: 20px;
-  letter-spacing: -0.04em;
+  font-size: 18px;
+  letter-spacing: -0.025em;
 }
 
 .export-dialog-close {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.28);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.84) inset,
-    0 6px 16px rgba(20, 20, 16, 0.08);
+  padding: 7px 11px;
+  border: 1px solid #bdbdb7;
+  border-radius: 999px;
+  background: transparent;
   cursor: pointer;
-  color: #111;
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  transition:
-    transform 180ms cubic-bezier(0.16, 1, 0.3, 1),
-    background 180ms ease,
-    box-shadow 180ms ease;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  text-transform: uppercase;
 }
 
-.export-dialog-close span {
-  font-family: Arial, sans-serif;
-  font-size: 18px;
-  font-weight: 300;
-  line-height: 1;
-}
-
-.export-dialog-close:hover {
-  background: rgba(255, 255, 255, 0.48);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.94) inset,
-    0 8px 20px rgba(20, 20, 16, 0.12);
-  transform: rotate(4deg) scale(1.05);
-}
-
-.export-format-list {
+.export-options {
   display: grid;
-  padding: 8px 26px 20px;
+  grid-template-columns: 0.88fr 1.12fr;
+  gap: 12px;
+  padding: 18px;
 }
 
-.export-format-group {
-  display: grid;
-  grid-template-columns: 150px 1fr;
+.export-option {
+  position: relative;
+  display: flex;
+  min-height: 270px;
+  flex-direction: column;
   gap: 18px;
-  align-items: center;
-  padding: 18px 0;
-  animation: export-group-in 430ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid #d5d5cf;
+  border-radius: 19px;
+  background: #f4f4ef;
 }
 
-.export-format-group:nth-child(1) {
-  animation-delay: 70ms;
+.export-option::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% -10%, rgba(255, 255, 255, 0.98), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.48), transparent 62%);
+  content: "";
+  pointer-events: none;
 }
 
-.export-format-group:nth-child(2) {
-  border-top: 1px solid rgba(24, 24, 20, 0.09);
-  animation-delay: 120ms;
+.export-option > * {
+  position: relative;
 }
 
-.export-format-copy {
+.export-option-mark {
   display: grid;
-  gap: 6px;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid #111;
+  border-radius: 17px;
+  background: #111;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.34) inset,
+    0 8px 18px rgba(0, 0, 0, 0.13);
+  color: #fff;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.07em;
 }
 
-.export-format-copy span {
-  color: rgba(17, 17, 17, 0.78);
+.export-option > div > span {
+  color: #7a7a75;
   font-size: 7px;
 }
 
-.export-format-copy p {
-  margin: 0;
-  color: rgba(17, 17, 17, 0.46);
-  font-size: 10px;
-  line-height: 1.35;
+.export-option h2 {
+  margin: 7px 0 6px;
+  font-size: 24px;
+  letter-spacing: -0.045em;
+  line-height: 1;
 }
 
-.export-format-picker {
+.export-option p {
+  margin: 0;
+  color: #5d5d58;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.export-option > button,
+.export-image-actions button,
+.export-model-actions button {
+  min-height: 45px;
+  border: 1px solid #111;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.export-option > button {
+  margin-top: auto;
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.export-image-actions,
+.export-model-actions {
   display: grid;
   gap: 8px;
+  margin-top: auto;
 }
 
-.export-image-picker {
+.export-image-actions {
   grid-template-columns: repeat(3, 1fr);
 }
 
-.export-model-picker {
+.export-model-actions {
   grid-template-columns: 1fr 1fr;
 }
 
-.export-format-picker button {
-  position: relative;
+.export-image-actions button,
+.export-model-actions button {
   display: grid;
-  min-height: 56px;
-  gap: 4px;
-  padding: 11px 13px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.76);
-  border-radius: 18px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.16)),
-    rgba(255, 255, 255, 0.22);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.2) inset,
-    0 7px 18px rgba(20, 20, 16, 0.07);
-  color: #111;
-  cursor: pointer;
-  font-family: var(--font-geist-mono), monospace;
+  gap: 3px;
+  padding: 9px 11px;
   text-align: left;
-  backdrop-filter: blur(19px) saturate(180%);
-  -webkit-backdrop-filter: blur(19px) saturate(180%);
-  transition:
-    transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 200ms ease,
-    background 200ms ease,
-    box-shadow 220ms ease;
 }
 
-.export-format-picker button::before {
-  position: absolute;
-  top: -45%;
-  left: -75%;
-  width: 68%;
-  height: 190%;
-  background: linear-gradient(
-    100deg,
-    transparent,
-    rgba(255, 255, 255, 0.58),
-    transparent
-  );
-  content: "";
-  pointer-events: none;
-  transform: rotate(12deg);
-  transition: left 520ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.export-format-picker button:hover {
-  border-color: rgba(255, 255, 255, 0.98);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.69), rgba(255, 255, 255, 0.22)),
-    rgba(255, 255, 255, 0.3);
-  box-shadow:
-    0 1px 0 #fff inset,
-    0 11px 26px rgba(20, 20, 16, 0.12);
-  transform: translateY(-2px) scale(1.012);
-}
-
-.export-format-picker button:hover::before {
-  left: 115%;
-}
-
-@supports (backdrop-filter: url("#airloom-liquid-refraction")) {
-  .export-format-picker button {
-    backdrop-filter: url("#airloom-liquid-refraction") blur(13px)
-      saturate(185%);
-  }
-}
-
-.export-format-picker button:active {
-  transform: translateY(0) scale(0.98);
-  transition-duration: 80ms;
-}
-
-.export-format-picker strong {
-  position: relative;
-  z-index: 1;
+.export-image-actions strong,
+.export-model-actions strong {
   font-size: 9px;
   letter-spacing: 0.08em;
 }
 
-.export-format-picker small {
-  position: relative;
-  z-index: 1;
-  color: rgba(17, 17, 17, 0.46);
+.export-image-actions small,
+.export-model-actions small {
+  color: rgba(255, 255, 255, 0.68);
   font-size: 6px;
   line-height: 1.35;
 }
 
 .export-dialog button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
-  transform: none;
+  opacity: 0.42;
 }
 
 .export-dialog-message {
-  margin: 0 26px 20px;
-  color: rgba(17, 17, 17, 0.48);
+  margin: 0 18px 18px;
+  color: #777771;
   font-size: 7px;
 }
 
 .export-dialog-message.is-error {
   color: #c43737;
-}
-
-@keyframes export-scrim-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes export-dialog-in {
-  from {
-    opacity: 0;
-    transform: translateY(18px) scale(0.96);
-  }
-}
-
-@keyframes export-group-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
 }
 
 .shape-assist-scrim {
@@ -1963,74 +1866,60 @@ button {
 }
 
 .theme-dark .export-scrim {
-  background: rgba(5, 6, 8, 0.48);
+  background: rgba(6, 7, 9, 0.72);
 }
 
 .theme-dark .export-dialog {
-  border-color: rgba(255, 255, 255, 0.18);
-  background:
-    linear-gradient(135deg, rgba(40, 43, 50, 0.67), rgba(12, 14, 18, 0.49)),
-    rgba(16, 18, 22, 0.62);
+  border-color: #535862;
+  background: rgba(18, 20, 24, 0.97);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.18) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.04) inset,
-    0 30px 90px rgba(0, 0, 0, 0.5),
-    0 5px 22px rgba(0, 0, 0, 0.3);
+    0 1px 0 rgba(255, 255, 255, 0.13) inset,
+    0 30px 86px rgba(0, 0, 0, 0.48);
   color: #f2f3f5;
 }
 
 .theme-dark .export-dialog > header {
-  border-color: rgba(255, 255, 255, 0.09);
+  border-color: #343840;
 }
 
 .theme-dark .export-dialog > header span,
+.theme-dark .export-option > div > span,
 .theme-dark .export-dialog-message {
-  color: rgba(242, 243, 245, 0.46);
+  color: #969ca5;
 }
 
 .theme-dark .export-dialog-close {
-  border-color: rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.08);
+  border-color: #555b65;
   color: #f2f3f5;
 }
 
-.theme-dark .export-dialog-close:hover {
-  background: rgba(255, 255, 255, 0.15);
+.theme-dark .export-option {
+  border-color: #373b43;
+  background: #17191e;
 }
 
-.theme-dark .export-format-group:nth-child(2) {
-  border-color: rgba(255, 255, 255, 0.09);
-}
-
-.theme-dark .export-format-copy span {
-  color: rgba(242, 243, 245, 0.82);
-}
-
-.theme-dark .export-format-copy p,
-.theme-dark .export-format-picker small {
-  color: rgba(242, 243, 245, 0.45);
-}
-
-.theme-dark .export-format-picker button {
-  border-color: rgba(255, 255, 255, 0.16);
+.theme-dark .export-option::before {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)),
-    rgba(255, 255, 255, 0.055);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.16) inset,
-    0 -1px 0 rgba(255, 255, 255, 0.025) inset,
-    0 9px 24px rgba(0, 0, 0, 0.18);
-  color: #f2f3f5;
+    radial-gradient(circle at 16% -10%, rgba(255, 255, 255, 0.12), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 62%);
 }
 
-.theme-dark .export-format-picker button:hover {
-  border-color: rgba(255, 255, 255, 0.29);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.055)),
-    rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.23) inset,
-    0 13px 30px rgba(0, 0, 0, 0.28);
+.theme-dark .export-option p {
+  color: #a3a8b0;
+}
+
+.theme-dark .export-option-mark,
+.theme-dark .export-option > button,
+.theme-dark .export-image-actions button,
+.theme-dark .export-model-actions button {
+  border-color: #f0f2f4;
+  background: #f0f2f4;
+  color: #101216;
+}
+
+.theme-dark .export-image-actions small,
+.theme-dark .export-model-actions small {
+  color: rgba(16, 18, 22, 0.64);
 }
 
 .theme-dark .export-dialog-message.is-error {
@@ -2588,23 +2477,24 @@ button {
     padding: 0 18px;
   }
 
-  .export-format-list {
-    padding: 4px 18px 16px;
-  }
-
-  .export-format-group {
+  .export-options {
     grid-template-columns: 1fr;
-    gap: 11px;
-    padding: 16px 0;
+    padding: 12px;
   }
 
-  .export-format-copy {
-    gap: 4px;
+  .export-option {
+    min-height: 0;
+    padding: 18px;
   }
 
-  .export-format-picker button {
-    min-height: 54px;
-    border-radius: 16px;
+  .export-option-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .export-option h2 {
+    font-size: 21px;
   }
 
   .shape-assist-prompt {
@@ -2777,8 +2667,6 @@ button {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
   }
