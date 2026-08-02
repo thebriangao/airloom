@@ -20,9 +20,8 @@ roll toggles the eraser.
 
 Mouse, keyboard, and visible-button fallbacks are included.
 
-Export downloads a clean PNG of the current view, a full-color GLB for Blender
-and modern 3D tools, an OBJ and MTL color package, an STL mesh for Fusion, CAD,
-and 3D printing, or a USDZ model for Apple Quick Look and AR.
+Export downloads either a clean PNG of the current view, a full-color GLB for
+Blender and modern 3D tools, or an STL mesh for Fusion, CAD, and 3D printing.
 
 ## Phone and tablet controls
 

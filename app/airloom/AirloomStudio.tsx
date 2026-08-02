@@ -14,7 +14,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import type { Material, Mesh, Object3D } from "three";
 import { AirScene, type SnapKind } from "./AirScene";
 import { GestureEngine } from "./gestureEngine";
 import type { CorrectedShapeKind } from "./shapeCorrection";
@@ -36,7 +35,7 @@ type CameraState =
   | "error";
 type TouchTool = "draw" | "pan" | "orbit" | "grab";
 type ThemeMode = "light" | "dark";
-type ExportFormat = "png" | "glb" | "obj" | "stl" | "usdz";
+type ExportFormat = "png" | "glb" | "stl";
 const DEFAULT_COLOR_INDEX: Record<ThemeMode, number> = {
   light: 0,
   dark: 4,
@@ -125,78 +124,6 @@ const LIGHTING_SAMPLE_INTERVAL_MS = 220;
 const LOW_LIGHT_TARGET_LUMINANCE = 0.42;
 const LOW_LIGHT_MAX_GAIN = 2.35;
 const INTERFACE_CURSOR_PROXIMITY_PX = 30;
-
-const materialColor = (material: Material) => {
-  const candidate = material as Material & {
-    color?: { r: number; g: number; b: number; getHexString: () => string };
-    metalness?: number;
-    opacity: number;
-    roughness?: number;
-  };
-  return {
-    color: candidate.color ?? {
-      r: 0.8,
-      g: 0.8,
-      b: 0.8,
-      getHexString: () => "cccccc",
-    },
-    metalness: candidate.metalness ?? 0,
-    opacity: candidate.opacity,
-    roughness: candidate.roughness ?? 0.5,
-  };
-};
-
-const prepareObjMaterials = (model: Object3D) => {
-  const definitions = new Map<
-    string,
-    ReturnType<typeof materialColor> & { name: string }
-  >();
-
-  model.traverse((object) => {
-    const mesh = object as Mesh;
-    if (!mesh.isMesh) return;
-    const materials = Array.isArray(mesh.material)
-      ? mesh.material
-      : [mesh.material];
-
-    for (const material of materials) {
-      const values = materialColor(material);
-      const key = [
-        values.color.getHexString(),
-        values.metalness.toFixed(3),
-        values.roughness.toFixed(3),
-        values.opacity.toFixed(3),
-      ].join("-");
-      let definition = definitions.get(key);
-      if (!definition) {
-        definition = {
-          ...values,
-          name: `AirloomMaterial_${definitions.size + 1}`,
-        };
-        definitions.set(key, definition);
-      }
-      material.name = definition.name;
-    }
-  });
-
-  const mtl = [...definitions.values()]
-    .map(({ color, metalness, name, opacity, roughness }) => {
-      const specular = 0.04 + metalness * 0.5;
-      const shininess = Math.round((1 - roughness) * 900 + 100);
-      return [
-        `newmtl ${name}`,
-        "Ka 0.050000 0.050000 0.050000",
-        `Kd ${color.r.toFixed(6)} ${color.g.toFixed(6)} ${color.b.toFixed(6)}`,
-        `Ks ${specular.toFixed(6)} ${specular.toFixed(6)} ${specular.toFixed(6)}`,
-        `Ns ${shininess}`,
-        `d ${opacity.toFixed(6)}`,
-        "illum 2",
-      ].join("\n");
-    })
-    .join("\n\n");
-
-  return mtl;
-};
 
 const requestLandscapeCameraStream = async () => {
   let lastConstraintError: unknown;
@@ -2454,29 +2381,7 @@ export function AirloomStudio() {
             new Blob([result], { type: "model/gltf-binary" }),
             "glb",
           );
-        } else if (format === "obj") {
-          const [{ OBJExporter }, { strToU8, zipSync }] = await Promise.all([
-            import("three/examples/jsm/exporters/OBJExporter.js"),
-            import("three/examples/jsm/libs/fflate.module.js"),
-          ]);
-          const mtl = prepareObjMaterials(model);
-          const obj = [
-            "# Airloom 3D drawing",
-            "mtllib airloom.mtl",
-            new OBJExporter().parse(model),
-          ].join("\n");
-          const archive = zipSync(
-            {
-              "airloom.obj": strToU8(obj),
-              "airloom.mtl": strToU8(mtl),
-            },
-            { level: 6 },
-          );
-          downloadExport(
-            new Blob([archive], { type: "application/zip" }),
-            "obj.zip",
-          );
-        } else if (format === "stl") {
+        } else {
           const { STLExporter } = await import(
             "three/examples/jsm/exporters/STLExporter.js"
           );
@@ -2486,18 +2391,6 @@ export function AirloomStudio() {
             data.byteOffset + data.byteLength,
           );
           downloadExport(new Blob([result], { type: "model/stl" }), "stl");
-        } else {
-          const { USDZExporter } = await import(
-            "three/examples/jsm/exporters/USDZExporter.js"
-          );
-          const result = await new USDZExporter().parseAsync(model, {
-            onlyVisible: true,
-            quickLookCompatible: true,
-          });
-          downloadExport(
-            new Blob([result], { type: "model/vnd.usdz+zip" }),
-            "usdz",
-          );
         }
       }
 
@@ -3212,7 +3105,7 @@ export function AirloomStudio() {
               [
                 "EXPORT",
                 "Manual button",
-                "Choose PNG, GLB, OBJ, STL, or USDZ",
+                "Choose PNG, GLB, or STL",
                 "More, then Export",
               ],
               ["MODE", "Enable camera", "Canvas + keybinds lock; buttons stay active", "Buttons stay active; Exit returns to touch"],
@@ -3305,24 +3198,6 @@ export function AirloomStudio() {
                         {exportingFormat === "stl" ? "Building…" : "STL"}
                       </strong>
                       <small>Universal mesh · Fusion + CAD</small>
-                    </button>
-                    <button
-                      onClick={() => void chooseExport("obj")}
-                      disabled={!hasArtwork || exportingFormat !== null}
-                    >
-                      <strong>
-                        {exportingFormat === "obj" ? "Packing…" : "OBJ + MTL"}
-                      </strong>
-                      <small>Classic mesh · colors included</small>
-                    </button>
-                    <button
-                      onClick={() => void chooseExport("usdz")}
-                      disabled={!hasArtwork || exportingFormat !== null}
-                    >
-                      <strong>
-                        {exportingFormat === "usdz" ? "Building…" : "USDZ"}
-                      </strong>
-                      <small>Apple Quick Look · AR ready</small>
                     </button>
                   </div>
                 </section>
