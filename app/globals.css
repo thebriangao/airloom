@@ -1243,8 +1243,9 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 0 20px;
-  background: #111;
-  color: #fff;
+  border-bottom: 1px solid #111;
+  background: #fbfbf8;
+  color: #111;
 }
 
 .export-dialog > header div {
@@ -1272,11 +1273,11 @@ button {
 
 .export-dialog-close {
   padding: 7px 10px;
-  border: 1px solid #555;
+  border: 1px solid #111;
   border-radius: 999px;
   background: transparent;
   cursor: pointer;
-  color: #fff;
+  color: #111;
   font-family: var(--font-geist-mono), monospace;
   font-size: 7px;
   text-transform: uppercase;
@@ -1833,8 +1834,9 @@ button {
 }
 
 .theme-dark .export-dialog > header {
-  background: #f2f3f5;
-  color: #111318;
+  border-color: #f2f3f5;
+  background: #111318;
+  color: #f2f3f5;
 }
 
 .theme-dark .export-dialog > header span,
@@ -1843,8 +1845,8 @@ button {
 }
 
 .theme-dark .export-dialog-close {
-  border-color: #a9adb4;
-  color: #111318;
+  border-color: #f2f3f5;
+  color: #f2f3f5;
 }
 
 .theme-dark .export-format-group + .export-format-group {
