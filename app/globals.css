@@ -87,6 +87,10 @@ button {
   pointer-events: auto;
 }
 
+.white-workspace.camera-mode.is-near-interface .air-canvas {
+  cursor: default;
+}
+
 .white-workspace [data-block-canvas-input] {
   cursor: default;
 }
@@ -1204,6 +1208,210 @@ button {
   display: none;
 }
 
+.control-map-scrim,
+.export-scrim {
+  position: absolute;
+  inset: 0;
+  cursor: default;
+}
+
+.control-map-scrim {
+  z-index: 27;
+}
+
+.export-scrim {
+  z-index: 32;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(246, 246, 241, 0.7);
+  backdrop-filter: blur(9px) saturate(130%);
+  -webkit-backdrop-filter: blur(9px) saturate(130%);
+}
+
+.export-dialog {
+  width: min(760px, calc(100vw - 40px));
+  overflow: hidden;
+  border: 1px solid #111;
+  border-radius: 26px;
+  background: rgba(251, 251, 248, 0.96);
+  box-shadow:
+    0 1px 0 #fff inset,
+    0 28px 80px rgba(0, 0, 0, 0.18);
+  color: #111;
+}
+
+.export-dialog > header {
+  display: flex;
+  min-height: 74px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  border-bottom: 1px solid #d9d9d3;
+}
+
+.export-dialog > header div {
+  display: grid;
+  gap: 4px;
+}
+
+.export-dialog > header span,
+.export-option > div > span,
+.export-dialog-message {
+  font-family: var(--font-geist-mono), monospace;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.export-dialog > header span {
+  color: #858580;
+  font-size: 7px;
+}
+
+.export-dialog > header strong {
+  font-size: 18px;
+  letter-spacing: -0.025em;
+}
+
+.export-dialog-close {
+  padding: 7px 11px;
+  border: 1px solid #bdbdb7;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.export-options {
+  display: grid;
+  grid-template-columns: 0.88fr 1.12fr;
+  gap: 12px;
+  padding: 18px;
+}
+
+.export-option {
+  position: relative;
+  display: flex;
+  min-height: 270px;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid #d5d5cf;
+  border-radius: 19px;
+  background: #f4f4ef;
+}
+
+.export-option::before {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 16% -10%, rgba(255, 255, 255, 0.98), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.48), transparent 62%);
+  content: "";
+  pointer-events: none;
+}
+
+.export-option > * {
+  position: relative;
+}
+
+.export-option-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid #111;
+  border-radius: 17px;
+  background: #111;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.34) inset,
+    0 8px 18px rgba(0, 0, 0, 0.13);
+  color: #fff;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+}
+
+.export-option > div > span {
+  color: #7a7a75;
+  font-size: 7px;
+}
+
+.export-option h2 {
+  margin: 7px 0 6px;
+  font-size: 24px;
+  letter-spacing: -0.045em;
+  line-height: 1;
+}
+
+.export-option p {
+  margin: 0;
+  color: #5d5d58;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.export-option > button,
+.export-model-actions button {
+  min-height: 45px;
+  border: 1px solid #111;
+  border-radius: 12px;
+  background: #111;
+  color: #fff;
+  cursor: pointer;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.export-option > button {
+  margin-top: auto;
+  font-size: 8px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.export-model-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.export-model-actions button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  text-align: left;
+}
+
+.export-model-actions strong {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+
+.export-model-actions small {
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 6px;
+  line-height: 1.35;
+}
+
+.export-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.export-dialog-message {
+  margin: 0 18px 18px;
+  color: #777771;
+  font-size: 7px;
+}
+
+.export-dialog-message.is-error {
+  color: #c43737;
+}
+
 .shape-assist-scrim {
   position: absolute;
   z-index: 30;
@@ -1643,6 +1851,65 @@ button {
 
 .theme-dark .gesture-guide-row strong {
   color: #c9cdd3;
+}
+
+.theme-dark .export-scrim {
+  background: rgba(6, 7, 9, 0.72);
+}
+
+.theme-dark .export-dialog {
+  border-color: #535862;
+  background: rgba(18, 20, 24, 0.97);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.13) inset,
+    0 30px 86px rgba(0, 0, 0, 0.48);
+  color: #f2f3f5;
+}
+
+.theme-dark .export-dialog > header {
+  border-color: #343840;
+}
+
+.theme-dark .export-dialog > header span,
+.theme-dark .export-option > div > span,
+.theme-dark .export-dialog-message {
+  color: #969ca5;
+}
+
+.theme-dark .export-dialog-close {
+  border-color: #555b65;
+  color: #f2f3f5;
+}
+
+.theme-dark .export-option {
+  border-color: #373b43;
+  background: #17191e;
+}
+
+.theme-dark .export-option::before {
+  background:
+    radial-gradient(circle at 16% -10%, rgba(255, 255, 255, 0.12), transparent 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 62%);
+}
+
+.theme-dark .export-option p {
+  color: #a3a8b0;
+}
+
+.theme-dark .export-option-mark,
+.theme-dark .export-option > button,
+.theme-dark .export-model-actions button {
+  border-color: #f0f2f4;
+  background: #f0f2f4;
+  color: #101216;
+}
+
+.theme-dark .export-model-actions small {
+  color: rgba(16, 18, 22, 0.64);
+}
+
+.theme-dark .export-dialog-message.is-error {
+  color: #ff8d8d;
 }
 
 .theme-dark .shape-assist-scrim {
@@ -2177,6 +2444,43 @@ button {
   .gesture-guide-columns strong,
   .gesture-guide-row strong {
     grid-column: 2;
+  }
+
+  .export-scrim {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .export-dialog {
+    width: 100%;
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+    border-radius: 22px;
+  }
+
+  .export-dialog > header {
+    min-height: 64px;
+    padding: 0 18px;
+  }
+
+  .export-options {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .export-option {
+    min-height: 0;
+    padding: 18px;
+  }
+
+  .export-option-mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 14px;
+  }
+
+  .export-option h2 {
+    font-size: 21px;
   }
 
   .shape-assist-prompt {

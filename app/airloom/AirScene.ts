@@ -1010,6 +1010,38 @@ export class AirScene {
     return this.renderer.domElement;
   }
 
+  createExportModel() {
+    this.endStroke();
+    this.endObjectGrab();
+    if (this.strokes.length === 0) return undefined;
+
+    const model = this.artwork.clone(true);
+    model.name = "AirloomArtwork";
+    model.position.set(0, 0, 0);
+    model.rotation.set(0, 0, 0);
+    model.scale.set(1, 1, 1);
+
+    let meshIndex = 0;
+    model.traverse((object) => {
+      if (!(object instanceof THREE.Mesh)) return;
+      meshIndex += 1;
+      object.name = `AirloomMesh_${meshIndex}`;
+      if (Array.isArray(object.material)) {
+        object.material = object.material.map((material) => material.clone());
+      } else {
+        object.material = object.material.clone();
+      }
+    });
+
+    model.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(model);
+    if (!bounds.isEmpty()) {
+      model.position.sub(bounds.getCenter(new THREE.Vector3()));
+    }
+    model.updateMatrixWorld(true);
+    return model;
+  }
+
   dispose() {
     window.cancelAnimationFrame(this.frame);
     this.onArtworkPresenceChange = undefined;

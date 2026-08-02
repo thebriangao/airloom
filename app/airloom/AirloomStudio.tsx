@@ -35,6 +35,7 @@ type CameraState =
   | "error";
 type TouchTool = "draw" | "pan" | "orbit" | "grab";
 type ThemeMode = "light" | "dark";
+type ExportFormat = "png" | "glb" | "stl";
 const DEFAULT_COLOR_INDEX: Record<ThemeMode, number> = {
   light: 0,
   dark: 4,
@@ -122,6 +123,7 @@ const TRACKING_FRAME_HEIGHT = 360;
 const LIGHTING_SAMPLE_INTERVAL_MS = 220;
 const LOW_LIGHT_TARGET_LUMINANCE = 0.42;
 const LOW_LIGHT_MAX_GAIN = 2.35;
+const INTERFACE_CURSOR_PROXIMITY_PX = 18;
 
 const requestLandscapeCameraStream = async () => {
   let lastConstraintError: unknown;
@@ -490,6 +492,11 @@ export function AirloomStudio() {
   const [touchTool, setTouchTool] = useState<TouchTool>("draw");
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
   const [touchLayout, setTouchLayout] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(
+    null,
+  );
+  const [exportError, setExportError] = useState("");
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
@@ -1049,6 +1056,12 @@ export function AirloomStudio() {
     query.addEventListener("change", updateLayout);
     return () => query.removeEventListener("change", updateLayout);
   }, []);
+
+  useEffect(() => {
+    if (demoMode) {
+      stageRef.current?.classList.remove("is-near-interface");
+    }
+  }, [demoMode]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
@@ -2222,6 +2235,51 @@ export function AirloomStudio() {
     hideHoverCursor();
   };
 
+  const handleWorkspacePointerMove = (
+    event: ReactPointerEvent<HTMLElement>,
+  ) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (demoMode || event.pointerType === "touch") {
+      stage.classList.remove("is-near-interface");
+      return;
+    }
+
+    const nearInterface = Array.from(
+      stage.querySelectorAll<HTMLElement>("[data-block-canvas-input]"),
+    ).some((element) => {
+      const style = window.getComputedStyle(element);
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        Number.parseFloat(style.opacity || "1") <= 0.01
+      ) {
+        return false;
+      }
+
+      const bounds = element.getBoundingClientRect();
+      const distanceX = Math.max(
+        bounds.left - event.clientX,
+        0,
+        event.clientX - bounds.right,
+      );
+      const distanceY = Math.max(
+        bounds.top - event.clientY,
+        0,
+        event.clientY - bounds.bottom,
+      );
+      return (
+        Math.hypot(distanceX, distanceY) <= INTERFACE_CURSOR_PROXIMITY_PX
+      );
+    });
+
+    stage.classList.toggle("is-near-interface", nearInterface);
+  };
+
+  const handleWorkspacePointerLeave = () => {
+    stageRef.current?.classList.remove("is-near-interface");
+  };
+
   const handleSideViewPointerDown = (
     event: ReactPointerEvent<HTMLElement>,
   ) => {
@@ -2266,7 +2324,16 @@ export function AirloomStudio() {
     releaseSideViewOrbit();
   };
 
-  const exportArtwork = async () => {
+  const downloadExport = (blob: Blob, extension: string) => {
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.download = `airloom-${new Date().toISOString().slice(0, 10)}.${extension}`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const exportPng = async () => {
     const stage = stageRef.current;
     const sceneCanvas = sceneRef.current?.getCanvas();
     if (!stage || !sceneCanvas) return;
@@ -2279,25 +2346,64 @@ export function AirloomStudio() {
     if (!context) return;
     context.fillStyle = theme === "dark" ? "#0b0c0f" : "#fbfbf8";
     context.fillRect(0, 0, width, height);
-    context.fillStyle = "#d8d8d4";
-    const gap = 26 * (width / Math.max(1, stage.clientWidth));
-    for (let x = gap; x < width; x += gap) {
-      for (let y = gap; y < height; y += gap) {
-        context.beginPath();
-        context.arc(x, y, 1.1, 0, Math.PI * 2);
-        context.fill();
-      }
-    }
     context.drawImage(sceneCanvas, 0, 0, width, height);
     const blob = await new Promise<Blob | null>((resolve) =>
       output.toBlob(resolve, "image/png"),
     );
     if (!blob) return;
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `airloom-${new Date().toISOString().slice(0, 10)}.png`;
-    link.click();
-    URL.revokeObjectURL(link.href);
+    downloadExport(blob, "png");
+  };
+
+  const chooseExport = async (format: ExportFormat) => {
+    if (!hasArtwork || exportingFormat) return;
+    setExportError("");
+    setExportingFormat(format);
+
+    try {
+      if (format === "png") {
+        await exportPng();
+      } else {
+        const model = sceneRef.current?.createExportModel();
+        if (!model) throw new Error("Draw something before exporting.");
+
+        if (format === "glb") {
+          const { GLTFExporter } = await import(
+            "three/examples/jsm/exporters/GLTFExporter.js"
+          );
+          const result = await new GLTFExporter().parseAsync(model, {
+            binary: true,
+            onlyVisible: true,
+          });
+          if (!(result instanceof ArrayBuffer)) {
+            throw new Error("Airloom could not build the GLB file.");
+          }
+          downloadExport(
+            new Blob([result], { type: "model/gltf-binary" }),
+            "glb",
+          );
+        } else {
+          const { STLExporter } = await import(
+            "three/examples/jsm/exporters/STLExporter.js"
+          );
+          const data = new STLExporter().parse(model, { binary: true });
+          const result = data.buffer.slice(
+            data.byteOffset,
+            data.byteOffset + data.byteLength,
+          );
+          downloadExport(new Blob([result], { type: "model/stl" }), "stl");
+        }
+      }
+
+      setExportOpen(false);
+    } catch (error) {
+      setExportError(
+        error instanceof Error
+          ? error.message
+          : "Airloom could not export this drawing.",
+      );
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   const cameraHasVideo =
@@ -2351,6 +2457,8 @@ export function AirloomStudio() {
       <section
         ref={stageRef}
         className={`white-workspace theme-${theme} ${demoMode ? "mouse-mode" : "camera-mode"}`}
+        onPointerMove={handleWorkspacePointerMove}
+        onPointerLeave={handleWorkspacePointerLeave}
       >
         <canvas
           ref={canvasRef}
@@ -2780,7 +2888,14 @@ export function AirloomStudio() {
           >
             Smooth {lineSmoothingEnabled ? "On" : "Off"}
           </button>
-          <button onClick={exportArtwork}>Export</button>
+          <button
+            onClick={() => {
+              setExportError("");
+              setExportOpen(true);
+            }}
+          >
+            Export
+          </button>
           <button
             className="help-button"
             onClick={() => setHelpOpen((value) => !value)}
@@ -2838,7 +2953,8 @@ export function AirloomStudio() {
               </button>
               <button
                 onClick={() => {
-                  void exportArtwork();
+                  setExportError("");
+                  setExportOpen(true);
                   setMobileActionsOpen(false);
                 }}
               >
@@ -2935,30 +3051,39 @@ export function AirloomStudio() {
         </div>
 
         {helpOpen && (
-          <aside
+          <div
             data-block-canvas-input
-            className="gesture-guide"
-            aria-label="Complete Airloom control map"
+            className="control-map-scrim"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (event.target === event.currentTarget) setHelpOpen(false);
+            }}
           >
-            <header>
-              <div>
-                <span>CONTROL MAP</span>
-                <strong>ALL AIRLOOM CONTROLS</strong>
+            <aside
+              className="gesture-guide"
+              aria-label="Complete Airloom control map"
+              role="dialog"
+              aria-modal="true"
+            >
+              <header>
+                <div>
+                  <span>CONTROL MAP</span>
+                  <strong>ALL AIRLOOM CONTROLS</strong>
+                </div>
+                <button
+                  className="gesture-guide-close"
+                  onClick={() => setHelpOpen(false)}
+                >
+                  Close
+                </button>
+              </header>
+              <div className="gesture-guide-columns" aria-hidden="true">
+                <span>ACTION</span>
+                <b>HAND + CAMERA</b>
+                <strong className="desktop-control-copy">KEYBOARD + MOUSE</strong>
+                <strong className="mobile-control-copy">TOUCH CONTROLS</strong>
               </div>
-              <button
-                className="gesture-guide-close"
-                onClick={() => setHelpOpen(false)}
-              >
-                Close
-              </button>
-            </header>
-            <div className="gesture-guide-columns" aria-hidden="true">
-              <span>ACTION</span>
-              <b>HAND + CAMERA</b>
-              <strong className="desktop-control-copy">KEYBOARD + MOUSE</strong>
-              <strong className="mobile-control-copy">TOUCH CONTROLS</strong>
-            </div>
-            {[
+              {[
               ["CURSOR", "Thumb + index apart", "Hover over canvas", "Touch follows the active tool"],
               ["DRAW", "Pinch thumb + index; separate to stop", "Left-drag; release to stop", "Choose Draw, then drag"],
               ["PAN", "Two fingers + move", "Two-finger swipe or middle-drag", "Choose Move, then drag"],
@@ -2977,17 +3102,117 @@ export function AirloomStudio() {
               ["LINE SMOOTHING", "On by default", "Click Smooth On/Off", "More, then Smooth"],
               ["RESET VIEW", "Manual button", "Click Reset view", "More, then Reset"],
               ["CLEAR", "Manual button", "Click Clear", "More, then Clear"],
-              ["EXPORT", "Manual button", "Click Export", "More, then Export"],
+              [
+                "EXPORT",
+                "Manual button",
+                "Choose PNG, GLB, or STL",
+                "More, then Export",
+              ],
               ["MODE", "Enable camera", "Canvas + keybinds lock; buttons stay active", "Buttons stay active; Exit returns to touch"],
-            ].map(([action, hand, combined, touch]) => (
-              <div className="gesture-guide-row" key={action}>
-                <span>{action}</span>
-                <b>{hand}</b>
-                <strong className="desktop-control-copy">{combined}</strong>
-                <strong className="mobile-control-copy">{touch}</strong>
+              ].map(([action, hand, combined, touch]) => (
+                <div className="gesture-guide-row" key={action}>
+                  <span>{action}</span>
+                  <b>{hand}</b>
+                  <strong className="desktop-control-copy">{combined}</strong>
+                  <strong className="mobile-control-copy">{touch}</strong>
+                </div>
+              ))}
+            </aside>
+          </div>
+        )}
+
+        {exportOpen && (
+          <div
+            data-block-canvas-input
+            className="export-scrim"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              if (
+                event.target === event.currentTarget &&
+                exportingFormat === null
+              ) {
+                setExportOpen(false);
+              }
+            }}
+          >
+            <aside
+              className="export-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-dialog-title"
+              aria-busy={exportingFormat !== null}
+            >
+              <header>
+                <div>
+                  <span>EXPORT AIRLOOM</span>
+                  <strong id="export-dialog-title">Choose your format</strong>
+                </div>
+                <button
+                  className="export-dialog-close"
+                  onClick={() => setExportOpen(false)}
+                  disabled={exportingFormat !== null}
+                  aria-label="Close export options"
+                >
+                  Close
+                </button>
+              </header>
+
+              <div className="export-options">
+                <section className="export-option export-option-png">
+                  <div className="export-option-mark">PNG</div>
+                  <div>
+                    <span>2D IMAGE</span>
+                    <h2>Clean canvas render</h2>
+                    <p>Current view on a solid background with no grid dots.</p>
+                  </div>
+                  <button
+                    onClick={() => void chooseExport("png")}
+                    disabled={!hasArtwork || exportingFormat !== null}
+                  >
+                    {exportingFormat === "png" ? "Rendering…" : "Download PNG"}
+                  </button>
+                </section>
+
+                <section className="export-option export-option-model">
+                  <div className="export-option-mark">3D</div>
+                  <div>
+                    <span>TRUE 3D MODEL</span>
+                    <h2>Every stroke as geometry</h2>
+                    <p>Centered tubular meshes with the depth you drew.</p>
+                  </div>
+                  <div className="export-model-actions">
+                    <button
+                      onClick={() => void chooseExport("glb")}
+                      disabled={!hasArtwork || exportingFormat !== null}
+                    >
+                      <strong>
+                        {exportingFormat === "glb" ? "Building…" : "GLB"}
+                      </strong>
+                      <small>Full color · Blender + 3D apps</small>
+                    </button>
+                    <button
+                      onClick={() => void chooseExport("stl")}
+                      disabled={!hasArtwork || exportingFormat !== null}
+                    >
+                      <strong>
+                        {exportingFormat === "stl" ? "Building…" : "STL"}
+                      </strong>
+                      <small>Universal mesh · Fusion + CAD</small>
+                    </button>
+                  </div>
+                </section>
               </div>
-            ))}
-          </aside>
+
+              {!hasArtwork && (
+                <p className="export-dialog-message">
+                  Draw something first, then export it.
+                </p>
+              )}
+              {exportError && (
+                <p className="export-dialog-message is-error">{exportError}</p>
+              )}
+            </aside>
+          </div>
         )}
 
         {shapeAssistPromptOpen && (

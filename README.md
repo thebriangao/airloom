@@ -20,6 +20,9 @@ roll toggles the eraser.
 
 Mouse, keyboard, and visible-button fallbacks are included.
 
+Export downloads either a clean PNG of the current view, a full-color GLB for
+Blender and modern 3D tools, or an STL mesh for Fusion, CAD, and 3D printing.
+
 ## Phone and tablet controls
 
 - Draw or Erase: tap the active tool button to switch, then drag one finger
@@ -45,4 +48,4 @@ Open `http://localhost:3000`.
 
 The camera requires HTTPS in production or localhost during development. Hand
 and face tracking run locally in the browser. Three.js builds, transforms,
-erases, and renders the luminous 3D stroke geometry.
+erases, renders, and exports the luminous 3D stroke geometry.
