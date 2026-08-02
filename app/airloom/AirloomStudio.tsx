@@ -12,6 +12,7 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type SyntheticEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AirScene, type SnapKind } from "./AirScene";
@@ -493,6 +494,12 @@ export function AirloomStudio() {
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
+
+  const blockLockedManualControl = (event: SyntheticEvent) => {
+    if (demoMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
 
   const hideHoverCursor = useCallback(() => {
     if (hoverCursorRef.current) {
@@ -2559,7 +2566,11 @@ export function AirloomStudio() {
           className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
-          inert={!demoMode}
+          onPointerDownCapture={blockLockedManualControl}
+          onClickCapture={blockLockedManualControl}
+          onKeyDownCapture={blockLockedManualControl}
+          onInputCapture={blockLockedManualControl}
+          onChangeCapture={blockLockedManualControl}
           aria-disabled={!demoMode}
         >
           <button
@@ -2734,7 +2745,9 @@ export function AirloomStudio() {
           data-block-canvas-input
           className="minimal-tools"
           aria-label="Artwork controls"
-          inert={!demoMode}
+          onPointerDownCapture={blockLockedManualControl}
+          onClickCapture={blockLockedManualControl}
+          onKeyDownCapture={blockLockedManualControl}
           aria-disabled={!demoMode}
         >
           <button
