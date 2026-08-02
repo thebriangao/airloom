@@ -12,7 +12,6 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type SyntheticEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { AirScene, type SnapKind } from "./AirScene";
@@ -494,12 +493,6 @@ export function AirloomStudio() {
 
   const selectedColor = AIRLOOM_COLORS[colorIndex];
   const activeThickness = eraserEnabled ? eraserThickness : thickness;
-
-  const blockLockedManualControl = (event: SyntheticEvent) => {
-    if (demoMode) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
 
   const hideHoverCursor = useCallback(() => {
     if (hoverCursorRef.current) {
@@ -2566,12 +2559,6 @@ export function AirloomStudio() {
           className={`brush-cartridge-shell ${menuOpen ? "is-open" : ""} ${eraserEnabled ? "is-eraser" : ""}`}
           style={cartridgeStyle}
           onPointerDown={(event) => event.stopPropagation()}
-          onPointerDownCapture={blockLockedManualControl}
-          onClickCapture={blockLockedManualControl}
-          onKeyDownCapture={blockLockedManualControl}
-          onInputCapture={blockLockedManualControl}
-          onChangeCapture={blockLockedManualControl}
-          aria-disabled={!demoMode}
         >
           <button
             data-block-canvas-input
@@ -2745,10 +2732,6 @@ export function AirloomStudio() {
           data-block-canvas-input
           className="minimal-tools"
           aria-label="Artwork controls"
-          onPointerDownCapture={blockLockedManualControl}
-          onClickCapture={blockLockedManualControl}
-          onKeyDownCapture={blockLockedManualControl}
-          aria-disabled={!demoMode}
         >
           <button
             onClick={undoArtwork}
@@ -2901,8 +2884,6 @@ export function AirloomStudio() {
           <nav
             className="mobile-tools"
             aria-label="Touch artwork controls"
-            inert={!demoMode}
-            aria-disabled={!demoMode}
           >
             <button onClick={undoArtwork}>
               <span>↶</span>
@@ -2997,7 +2978,7 @@ export function AirloomStudio() {
               ["RESET VIEW", "Manual button", "Click Reset view", "More, then Reset"],
               ["CLEAR", "Manual button", "Click Clear", "More, then Clear"],
               ["EXPORT", "Manual button", "Click Export", "More, then Export"],
-              ["MODE", "Enable camera", "Exit camera to unlock controls", "Use the camera card; Exit returns to touch"],
+              ["MODE", "Enable camera", "Canvas + keybinds lock; buttons stay active", "Buttons stay active; Exit returns to touch"],
             ].map(([action, hand, combined, touch]) => (
               <div className="gesture-guide-row" key={action}>
                 <span>{action}</span>
@@ -3044,11 +3025,11 @@ export function AirloomStudio() {
 
         <p data-block-canvas-input className="canvas-hint">
           {cameraState === "active"
-            ? "Gesture mode active · Exit camera to use keyboard + mouse"
+            ? "Gesture canvas active · Buttons stay available · Exit for keyboard + mouse"
             : cameraState === "calibrating"
-              ? "Loading hand tracking · Keyboard + mouse locked"
+              ? "Loading hand tracking · Buttons stay available"
               : cameraState === "requesting"
-                ? "Requesting camera access · Keyboard + mouse locked"
+                ? "Requesting camera access · Buttons stay available"
                 : "Left-drag to draw · Double-click toggles eraser · Click ? for every control"}
         </p>
       </section>
