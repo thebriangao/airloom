@@ -1355,6 +1355,7 @@ button {
 }
 
 .export-option > button,
+.export-image-actions button,
 .export-model-actions button {
   min-height: 45px;
   border: 1px solid #111;
@@ -1372,13 +1373,22 @@ button {
   text-transform: uppercase;
 }
 
+.export-image-actions,
 .export-model-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: auto;
 }
 
+.export-image-actions {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.export-model-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.export-image-actions button,
 .export-model-actions button {
   display: grid;
   gap: 3px;
@@ -1386,11 +1396,13 @@ button {
   text-align: left;
 }
 
+.export-image-actions strong,
 .export-model-actions strong {
   font-size: 9px;
   letter-spacing: 0.08em;
 }
 
+.export-image-actions small,
 .export-model-actions small {
   color: rgba(255, 255, 255, 0.68);
   font-size: 6px;
@@ -1898,12 +1910,14 @@ button {
 
 .theme-dark .export-option-mark,
 .theme-dark .export-option > button,
+.theme-dark .export-image-actions button,
 .theme-dark .export-model-actions button {
   border-color: #f0f2f4;
   background: #f0f2f4;
   color: #101216;
 }
 
+.theme-dark .export-image-actions small,
 .theme-dark .export-model-actions small {
   color: rgba(16, 18, 22, 0.64);
 }

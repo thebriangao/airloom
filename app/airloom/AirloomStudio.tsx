@@ -35,7 +35,7 @@ type CameraState =
   | "error";
 type TouchTool = "draw" | "pan" | "orbit" | "grab";
 type ThemeMode = "light" | "dark";
-type ExportFormat = "png" | "glb" | "stl";
+type ExportFormat = "png" | "jpeg" | "webp" | "glb" | "stl";
 const DEFAULT_COLOR_INDEX: Record<ThemeMode, number> = {
   light: 0,
   dark: 4,
@@ -2333,7 +2333,7 @@ export function AirloomStudio() {
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
-  const exportPng = async () => {
+  const exportImage = async (format: "png" | "jpeg" | "webp") => {
     const stage = stageRef.current;
     const sceneCanvas = sceneRef.current?.getCanvas();
     if (!stage || !sceneCanvas) return;
@@ -2347,11 +2347,15 @@ export function AirloomStudio() {
     context.fillStyle = theme === "dark" ? "#0b0c0f" : "#fbfbf8";
     context.fillRect(0, 0, width, height);
     context.drawImage(sceneCanvas, 0, 0, width, height);
+    const mimeType = `image/${format}`;
     const blob = await new Promise<Blob | null>((resolve) =>
-      output.toBlob(resolve, "image/png"),
+      output.toBlob(resolve, mimeType, format === "png" ? undefined : 0.94),
     );
     if (!blob) return;
-    downloadExport(blob, "png");
+    if (blob.type !== mimeType) {
+      throw new Error(`${format.toUpperCase()} export is unavailable in this browser.`);
+    }
+    downloadExport(blob, format === "jpeg" ? "jpg" : format);
   };
 
   const chooseExport = async (format: ExportFormat) => {
@@ -2360,8 +2364,8 @@ export function AirloomStudio() {
     setExportingFormat(format);
 
     try {
-      if (format === "png") {
-        await exportPng();
+      if (format === "png" || format === "jpeg" || format === "webp") {
+        await exportImage(format);
       } else {
         const model = sceneRef.current?.createExportModel();
         if (!model) throw new Error("Draw something before exporting.");
@@ -3105,7 +3109,7 @@ export function AirloomStudio() {
               [
                 "EXPORT",
                 "Manual button",
-                "Choose PNG, GLB, or STL",
+                "Choose PNG, JPG, WebP, GLB, or STL",
                 "More, then Export",
               ],
               ["MODE", "Enable camera", "Canvas + keybinds lock; buttons stay active", "Buttons stay active; Exit returns to touch"],
@@ -3162,15 +3166,38 @@ export function AirloomStudio() {
                   <div className="export-option-mark">PNG</div>
                   <div>
                     <span>2D IMAGE</span>
-                    <h2>Clean canvas render</h2>
+                    <h2>Clean canvas renders</h2>
                     <p>Current view on a solid background with no grid dots.</p>
                   </div>
-                  <button
-                    onClick={() => void chooseExport("png")}
-                    disabled={!hasArtwork || exportingFormat !== null}
-                  >
-                    {exportingFormat === "png" ? "Rendering…" : "Download PNG"}
-                  </button>
+                  <div className="export-image-actions">
+                    <button
+                      onClick={() => void chooseExport("png")}
+                      disabled={!hasArtwork || exportingFormat !== null}
+                    >
+                      <strong>
+                        {exportingFormat === "png" ? "Rendering…" : "PNG"}
+                      </strong>
+                      <small>Lossless</small>
+                    </button>
+                    <button
+                      onClick={() => void chooseExport("jpeg")}
+                      disabled={!hasArtwork || exportingFormat !== null}
+                    >
+                      <strong>
+                        {exportingFormat === "jpeg" ? "Rendering…" : "JPG"}
+                      </strong>
+                      <small>Universal</small>
+                    </button>
+                    <button
+                      onClick={() => void chooseExport("webp")}
+                      disabled={!hasArtwork || exportingFormat !== null}
+                    >
+                      <strong>
+                        {exportingFormat === "webp" ? "Rendering…" : "WEBP"}
+                      </strong>
+                      <small>Compact</small>
+                    </button>
+                  </div>
                 </section>
 
                 <section className="export-option export-option-model">
