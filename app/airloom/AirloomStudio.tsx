@@ -123,7 +123,7 @@ const TRACKING_FRAME_HEIGHT = 360;
 const LIGHTING_SAMPLE_INTERVAL_MS = 220;
 const LOW_LIGHT_TARGET_LUMINANCE = 0.42;
 const LOW_LIGHT_MAX_GAIN = 2.35;
-const INTERFACE_CURSOR_PROXIMITY_PX = 18;
+const INTERFACE_CURSOR_PROXIMITY_PX = 30;
 
 const requestLandscapeCameraStream = async () => {
   let lastConstraintError: unknown;
